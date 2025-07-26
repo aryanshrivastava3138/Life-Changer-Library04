@@ -377,7 +377,7 @@ export default function PaymentScreen() {
           
           <View style={styles.qrContainer}>
             <Image
-              source={require('../../assets/images/QR_Payment.png')}
+              source={require('@/assets/images/QR_Payment.png')}
               style={styles.qrImage}
               resizeMode="contain" 
             />
