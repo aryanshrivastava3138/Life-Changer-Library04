@@ -1,4 +1,4 @@
-import { TouchableOpacity, Text, StyleSheet, ViewStyle, TextStyle } from 'react-native';
+import { TouchableOpacity, Text, StyleSheet, ViewStyle, TextStyle, View } from 'react-native';
 import { ReactNode } from 'react';
 
 interface ButtonProps {
@@ -22,6 +22,13 @@ export function Button({
   style,
   textStyle,
 }: ButtonProps) {
+  const handlePress = () => {
+    console.log('Button pressed, disabled:', disabled);
+    if (!disabled && onPress) {
+      onPress();
+    }
+  };
+
   const buttonStyles = [
     styles.base,
     styles[variant],
@@ -41,9 +48,10 @@ export function Button({
   return (
     <TouchableOpacity
       style={buttonStyles}
-      onPress={onPress}
+      onPress={handlePress}
       disabled={disabled}
       activeOpacity={0.8}
+      hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
     >
       {children || <Text style={textStyles}>{title}</Text>}
     </TouchableOpacity>
