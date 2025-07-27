@@ -202,7 +202,6 @@ export default function AdminPaymentsScreen() {
   };
 
   const confirmAction = (payment: CashPaymentWithDetails, action: 'approve' | 'reject') => {
-    console.log('confirmAction called with:', { paymentId: payment.id, action });
     const paymentType = payment.booking_id ? 'seat booking' : 'admission';
     const details = payment.booking_id 
       ? `Seat ${payment.booking?.seat_number} for ${payment.booking?.shift} shift`
@@ -329,7 +328,6 @@ export default function AdminPaymentsScreen() {
                 <View style={styles.actionButtons}>
                   <Button
                     onPress={() => {
-                      console.log('Approve button pressed for payment:', payment.id);
                       confirmAction(payment, 'approve');
                     }}
                     disabled={processing === payment.id}
@@ -344,7 +342,6 @@ export default function AdminPaymentsScreen() {
 
                   <Button
                     onPress={() => {
-                      console.log('Reject button pressed for payment:', payment.id);
                       confirmAction(payment, 'reject');
                     }}
                     disabled={processing === payment.id}
@@ -567,18 +564,18 @@ const styles = StyleSheet.create({
   actionButtons: {
     flexDirection: 'row',
     gap: 12,
-    minHeight: 44, // Ensure minimum touch target size
+    minHeight: 48, // Ensure minimum touch target size
     alignItems: 'center',
   },
   approveButton: {
     flex: 1,
     backgroundColor: '#10B981',
-    minHeight: 44,
+    minHeight: 48,
     justifyContent: 'center',
   },
   rejectButton: {
     flex: 1,
-    minHeight: 44,
+    minHeight: 48,
     justifyContent: 'center',
   },
   buttonContent: {
@@ -586,8 +583,8 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
     gap: 6,
-    paddingVertical: 8,
-    paddingHorizontal: 12,
+    paddingVertical: 12,
+    paddingHorizontal: 16,
   },
   buttonText: {
     fontSize: 14,
