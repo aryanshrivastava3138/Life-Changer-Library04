@@ -202,6 +202,8 @@ export default function AdminPaymentsScreen() {
   };
 
   const confirmAction = (payment: CashPaymentWithDetails, action: 'approve' | 'reject') => {
+    console.log('confirmAction called with:', { paymentId: payment.id, action });
+    
     const paymentType = payment.booking_id ? 'seat booking' : 'admission';
     const details = payment.booking_id 
       ? `Seat ${payment.booking?.seat_number} for ${payment.booking?.shift} shift`
@@ -215,7 +217,10 @@ export default function AdminPaymentsScreen() {
         {
           text: action === 'approve' ? 'Approve' : 'Reject',
           style: action === 'approve' ? 'default' : 'destructive',
-          onPress: () => handlePaymentAction(payment, action)
+          onPress: () => {
+            console.log('Alert confirmed, calling handlePaymentAction');
+            handlePaymentAction(payment, action);
+          }
         }
       ]
     );
@@ -326,34 +331,39 @@ export default function AdminPaymentsScreen() {
                 </View>
 
                 <View style={styles.actionButtons}>
-                  <Button
+                  <TouchableOpacity
+                    style={[styles.approveButton, processing === payment.id && styles.disabledButton]}
                     onPress={() => {
-                      confirmAction(payment, 'approve');
+                      console.log('Approve button pressed for payment:', payment.id);
+                      if (processing !== payment.id) {
+                        confirmAction(payment, 'approve');
+                      }
                     }}
                     disabled={processing === payment.id}
-                    size="small"
-                    style={styles.approveButton}
+                    activeOpacity={0.7}
                   >
                     <View style={styles.buttonContent}>
                       <CheckCircle size={16} color="#FFFFFF" />
                       <Text style={styles.buttonText}>Approve</Text>
                     </View>
-                  </Button>
+                  </TouchableOpacity>
 
-                  <Button
+                  <TouchableOpacity
+                    style={[styles.rejectButton, processing === payment.id && styles.disabledButton]}
                     onPress={() => {
-                      confirmAction(payment, 'reject');
+                      console.log('Reject button pressed for payment:', payment.id);
+                      if (processing !== payment.id) {
+                        confirmAction(payment, 'reject');
+                      }
                     }}
                     disabled={processing === payment.id}
-                    variant="danger"
-                    size="small"
-                    style={styles.rejectButton}
+                    activeOpacity={0.7}
                   >
                     <View style={styles.buttonContent}>
                       <XCircle size={16} color="#FFFFFF" />
                       <Text style={styles.buttonText}>Reject</Text>
                     </View>
-                  </Button>
+                  </TouchableOpacity>
                 </View>
               </View>
             ))}
@@ -572,11 +582,19 @@ const styles = StyleSheet.create({
     backgroundColor: '#10B981',
     minHeight: 48,
     justifyContent: 'center',
+    borderRadius: 8,
+    alignItems: 'center',
   },
   rejectButton: {
     flex: 1,
+    backgroundColor: '#EF4444',
     minHeight: 48,
     justifyContent: 'center',
+    borderRadius: 8,
+    alignItems: 'center',
+  },
+  disabledButton: {
+    opacity: 0.5,
   },
   buttonContent: {
     flexDirection: 'row',

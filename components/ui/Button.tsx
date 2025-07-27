@@ -23,7 +23,6 @@ export function Button({
   textStyle,
 }: ButtonProps) {
   const handlePress = () => {
-    console.log('Button pressed, disabled:', disabled);
     if (!disabled && onPress) {
       onPress();
     }
@@ -51,7 +50,7 @@ export function Button({
       onPress={handlePress}
       disabled={disabled}
       activeOpacity={0.8}
-      hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
+      hitSlop={{ top: 15, bottom: 15, left: 15, right: 15 }}
     >
       {children || <Text style={textStyles}>{title}</Text>}
     </TouchableOpacity>
