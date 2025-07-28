@@ -40,11 +40,9 @@ interface PricingOption {
 
 export default function HomeScreen() {
   const { user } = useAuth();
-  const [admission, setAdmission] = useState<Admission | null>(null);
   const [shiftAvailability, setShiftAvailability] = useState<ShiftAvailability[]>([]);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
-  const [remainingDays, setRemainingDays] = useState(0);
 
   const today = new Date().toISOString().split('T')[0];
   const totalSeats = 50;
@@ -68,21 +66,6 @@ export default function HomeScreen() {
     if (!user) return;
 
     try {
-      // Fetch admission data
-      const { data: admissionData } = await supabase
-        .from('admissions')
-        .select('*')
-        .eq('user_id', user.id)
-        .order('created_at', { ascending: false })
-        .limit(1);
-
-      if (admissionData && admissionData.length > 0) {
-        setAdmission(admissionData[0]);
-        if (admissionData[0].end_date) {
-          setRemainingDays(calculateRemainingDays(admissionData[0].end_date));
-        }
-      }
-
       // Fetch seat bookings for today
       const { data: bookingsData } = await supabase
         .from('seat_bookings')
@@ -117,6 +100,10 @@ export default function HomeScreen() {
     setRefreshing(false);
   };
 
+  const isUserApproved = user?.approval_status === 'approved';
+  const isUserPending = user?.approval_status === 'pending';
+  const isUserRejected = user?.approval_status === 'rejected';
+
   const getAvailabilityColor = (availableSeats: number): string => {
     const percentage = (availableSeats / totalSeats) * 100;
     if (percentage > 50) return '#10B981'; // Green
@@ -135,7 +122,49 @@ export default function HomeScreen() {
     return <LoadingSpinner />;
   }
 
-  const hasAdmission = admission && admission.payment_status === 'paid';
+  if (isUserRejected) {
+    return (
+      <ScrollView style={styles.container}>
+        <View style={styles.header}>
+          <Text style={styles.greeting}>Account Status</Text>
+          <Text style={styles.name}>{user?.full_name}</Text>
+          <Text style={styles.subtitle}>Life Changer Library</Text>
+        </View>
+
+        <Card style={styles.statusCard}>
+          <View style={styles.rejectedContent}>
+            <XIcon size={64} color="#EF4444" style={styles.statusIcon} />
+            <Text style={styles.rejectedTitle}>Account Rejected</Text>
+            <Text style={styles.rejectedDescription}>
+              Your account application has been rejected. Please contact the library administration for more information.
+            </Text>
+          </View>
+        </Card>
+      </ScrollView>
+    );
+  }
+
+  if (isUserPending) {
+    return (
+      <ScrollView style={styles.container}>
+        <View style={styles.header}>
+          <Text style={styles.greeting}>Welcome,</Text>
+          <Text style={styles.name}>{user?.full_name}</Text>
+          <Text style={styles.subtitle}>Life Changer Library</Text>
+        </View>
+
+        <Card style={styles.statusCard}>
+          <View style={styles.pendingContent}>
+            <Clock size={64} color="#F59E0B" style={styles.statusIcon} />
+            <Text style={styles.pendingTitle}>Account Pending Approval</Text>
+            <Text style={styles.pendingDescription}>
+              Your account is currently under review by our administrators. You will be notified once your account is approved and you can start using the library services.
+            </Text>
+          </View>
+        </Card>
+      </ScrollView>
+    );
+  }
 
   return (
     <ScrollView 
@@ -148,23 +177,23 @@ export default function HomeScreen() {
         <Text style={styles.subtitle}>Life Changer Library</Text>
       </View>
 
-      {!hasAdmission ? (
+      {isUserApproved && (
         <>
-          {/* Hero Section */}
+          {/* Welcome Section */}
           <Card style={styles.heroCard}>
             <View style={styles.heroContent}>
               <CheckCircle size={48} color="#10B981" style={styles.heroIcon} />
-              <Text style={styles.heroTitle}>Start Your Learning Journey</Text>
+              <Text style={styles.heroTitle}>Welcome to Life Changer Library</Text>
               <Text style={styles.heroDescription}>
-                Join thousands of students who have transformed their academic success with our premium library facilities
+                Your account has been approved! You can now book seats and start your learning journey with us.
               </Text>
               <Button
-                title="Complete Admission Process"
-                onPress={() => router.push('/admission')}
+                title="Book Your Seat"
+                onPress={() => router.push('/(tabs)/booking')}
                 style={styles.heroButton}
               >
                 <View style={styles.buttonContent}>
-                  <Text style={styles.heroButtonText}>Complete Admission Process</Text>
+                  <Text style={styles.heroButtonText}>Book Your Seat</Text>
                   <ArrowRight size={20} color="#FFFFFF" />
                 </View>
               </Button>
@@ -300,85 +329,20 @@ export default function HomeScreen() {
           {/* Call to Action */}
           <Card style={styles.ctaCard}>
             <View style={styles.ctaContent}>
-              <Text style={styles.ctaTitle}>Ready to Begin?</Text>
+              <Text style={styles.ctaTitle}>Start Studying Today</Text>
               <Text style={styles.ctaDescription}>
-                Complete your admission form and secure your preferred seats today
+                Book your preferred seats and begin your productive study sessions
               </Text>
               <Button
-                title="Continue to Booking"
-                onPress={() => router.push('/admission')}
+                title="Book Seats Now"
+                onPress={() => router.push('/(tabs)/booking')}
                 style={styles.ctaButton}
               >
                 <View style={styles.buttonContent}>
-                  <Text style={styles.ctaButtonText}>Continue to Booking</Text>
+                  <Text style={styles.ctaButtonText}>Book Seats Now</Text>
                   <ArrowRight size={20} color="#FFFFFF" />
                 </View>
               </Button>
-            </View>
-          </Card>
-        </>
-      ) : (
-        <>
-          {/* Subscription Status for Admitted Students */}
-          <Card style={styles.statusCard}>
-            <View style={styles.statusHeader}>
-              <Clock size={24} color={remainingDays <= 5 ? '#F59E0B' : '#10B981'} />
-              <Text style={styles.statusTitle}>Subscription Status</Text>
-            </View>
-            <Text style={[
-              styles.remainingDays,
-              { color: remainingDays <= 5 ? '#F59E0B' : '#10B981' }
-            ]}>
-              {remainingDays} days remaining
-            </Text>
-            {remainingDays <= 5 && (
-              <View style={styles.warningCard}>
-                <AlertTriangle size={20} color="#F59E0B" />
-                <Text style={styles.warningText}>
-                  Your subscription expires soon. Please renew to continue.
-                </Text>
-              </View>
-            )}
-            {admission.end_date && (
-              <Text style={styles.expiryDate}>
-                Expires on: {formatDate(admission.end_date)}
-              </Text>
-            )}
-          </Card>
-
-          {/* Quick Actions for Admitted Students */}
-          <Card style={styles.actionsCard}>
-            <Text style={styles.sectionTitle}>Quick Actions</Text>
-            <View style={styles.actionGrid}>
-              <TouchableOpacity
-                style={styles.actionCard}
-                onPress={() => router.push('/(tabs)/booking')}
-              >
-                <Calendar size={32} color="#2563EB" />
-                <Text style={styles.actionTitle}>Book Seat</Text>
-                <Text style={styles.actionDescription}>Reserve your study spot</Text>
-              </TouchableOpacity>
-              
-              <TouchableOpacity
-                style={styles.actionCard}
-                onPress={() => router.push('/(tabs)/attendance')}
-              >
-                <Users size={32} color="#10B981" />
-                <Text style={styles.actionTitle}>Attendance</Text>
-                <Text style={styles.actionDescription}>Check in/out</Text>
-              </TouchableOpacity>
-            </View>
-          </Card>
-
-          {/* Current Shift Information */}
-          <Card style={styles.shiftCard}>
-            <Text style={styles.sectionTitle}>Your Shifts</Text>
-            <View style={styles.shiftsContainer}>
-              {admission.selected_shifts.map((shift) => (
-                <View key={shift} style={styles.shiftTag}>
-                  <Text style={styles.shiftText}>{shift}</Text>
-                </View>
-              ))}
             </View>
           </Card>
         </>
@@ -721,6 +685,43 @@ const styles = StyleSheet.create({
   // Styles for admitted students
   statusCard: {
     margin: 16,
+  },
+  statusIcon: {
+    marginBottom: 16,
+  },
+  pendingContent: {
+    alignItems: 'center',
+    padding: 8,
+  },
+  pendingTitle: {
+    fontSize: 24,
+    fontWeight: 'bold',
+    color: '#F59E0B',
+    marginBottom: 8,
+    textAlign: 'center',
+  },
+  pendingDescription: {
+    fontSize: 16,
+    color: '#92400E',
+    textAlign: 'center',
+    lineHeight: 24,
+  },
+  rejectedContent: {
+    alignItems: 'center',
+    padding: 8,
+  },
+  rejectedTitle: {
+    fontSize: 24,
+    fontWeight: 'bold',
+    color: '#EF4444',
+    marginBottom: 8,
+    textAlign: 'center',
+  },
+  rejectedDescription: {
+    fontSize: 16,
+    color: '#DC2626',
+    textAlign: 'center',
+    lineHeight: 24,
   },
   statusHeader: {
     flexDirection: 'row',

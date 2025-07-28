@@ -12,16 +12,15 @@ import { MapPin, Clock, CircleCheck as CheckCircle, CircleAlert as AlertCircle, 
 
 export default function BookingScreen() {
   const { user } = useAuth();
-  const [admission, setAdmission] = useState<Admission | null>(null);
   const [selectedShift, setSelectedShift] = useState<string>('');
   const [seatBookings, setSeatBookings] = useState<SeatBooking[]>([]);
   const [userBookings, setUserBookings] = useState<SeatBooking[]>([]);
-  const [pendingCashPayments, setPendingCashPayments] = useState<any[]>([]);
   const [selectedSeat, setSelectedSeat] = useState<string>('');
   const [loading, setLoading] = useState(true);
   const [booking, setBooking] = useState(false);
 
   const seatNumbers = generateSeatNumbers();
+  const availableShifts = ['morning', 'noon', 'evening', 'night']; // All shifts available for approved users
 
   useEffect(() => {
     fetchData();
@@ -31,19 +30,9 @@ export default function BookingScreen() {
     if (!user) return;
 
     try {
-      // Fetch admission data - get the most recent admission
-      const { data: admissionData } = await supabase
-        .from('admissions')
-        .select('*')
-        .eq('user_id', user.id)
-        .order('created_at', { ascending: false })
-        .limit(1);
-
-      if (admissionData && admissionData.length > 0) {
-        setAdmission(admissionData[0]);
-        if (admissionData[0].selected_shifts.length > 0) {
-          setSelectedShift(admissionData[0].selected_shifts[0]);
-        }
+      // Set default shift
+      if (availableShifts.length > 0) {
+        setSelectedShift(availableShifts[0]);
       }
 
       // Fetch all seat bookings for today
@@ -60,18 +49,6 @@ export default function BookingScreen() {
         // Filter user's bookings
         const userBookingsData = bookingsData.filter(booking => booking.user_id === user.id);
         setUserBookings(userBookingsData);
-        
-        // Check for pending cash payments for bookings
-        const { data: cashPaymentsData } = await supabase
-          .from('cash_payments')
-          .select('*')
-          .eq('user_id', user.id)
-          .eq('status', 'pending')
-          .not('booking_id', 'is', null);
-        
-        if (cashPaymentsData) {
-          setPendingCashPayments(cashPaymentsData);
-        }
       }
     } catch (error) {
       console.error('Error fetching data:', error);
@@ -94,23 +71,12 @@ export default function BookingScreen() {
       return;
     }
 
-    // Direct booking submission for admin approval
+    // Direct booking for approved users
     handleDirectBooking();
   };
 
   const handleDirectBooking = async () => {
     if (!user || !selectedSeat || !selectedShift) return;
-
-    // Check if user already has a pending cash payment for any booking
-    const hasPendingCashPayment = pendingCashPayments.some(payment => payment.booking_id);
-    if (hasPendingCashPayment) {
-      Alert.alert(
-        'Pending Payment Request',
-        'You have a pending cash payment request for another booking. Please wait for approval before making new bookings.',
-        [{ text: 'OK' }]
-      );
-      return;
-    }
 
     setBooking(true);
 
@@ -123,7 +89,7 @@ export default function BookingScreen() {
           user_id: user.id,
           shift: selectedShift,
           seat_number: selectedSeat,
-          booking_status: 'pending',
+          booking_status: 'booked',
           booking_date: today,
         })
         .select()
@@ -131,26 +97,9 @@ export default function BookingScreen() {
 
       if (bookingError) throw bookingError;
 
-      // Create cash payment record for admin approval
-      const { data: cashPaymentData, error: cashPaymentError } = await supabase
-        .from('cash_payments')
-        .insert({
-          user_id: user.id,
-          booking_id: bookingData.id,
-          amount: 50, // Base booking fee
-          status: 'pending'
-        })
-        .select()
-        .single();
-
-      if (cashPaymentError) throw cashPaymentError;
-
-      // Update local state
-      setPendingCashPayments(prev => [...prev, cashPaymentData]);
-
       Alert.alert(
-        'Booking Submitted!',
-        `Your booking for seat ${selectedSeat} (${selectedShift} shift) has been submitted for admin approval. You will be notified once approved.`,
+        'Booking Confirmed!',
+        `Your seat ${selectedSeat} for ${selectedShift} shift has been booked successfully!`,
         [{ text: 'OK' }]
       );
 
@@ -196,13 +145,13 @@ export default function BookingScreen() {
     return <LoadingSpinner />;
   }
 
-  if (!admission || admission.payment_status !== 'paid') {
+  if (user?.approval_status !== 'approved') {
     return (
       <View style={styles.container}>
         <Card style={styles.messageCard}>
-          <Text style={styles.messageTitle}>Complete Your Admission</Text>
+          <Text style={styles.messageTitle}>Account Approval Required</Text>
           <Text style={styles.messageText}>
-            Please complete your admission and payment to book seats.
+            Your account needs to be approved by an administrator before you can book seats.
           </Text>
         </Card>
       </View>
@@ -220,7 +169,7 @@ export default function BookingScreen() {
       <Card style={styles.shiftCard}>
         <Text style={styles.sectionTitle}>Select Shift</Text>
         <View style={styles.shiftGrid}>
-          {SHIFTS.filter(shift => admission.selected_shifts.includes(shift.id)).map((shift) => {
+          {SHIFTS.map((shift) => {
             const isBooked = hasUserBookedShift(shift.id);
             const bookedSeat = getUserSeatForShift(shift.id);
             
@@ -382,34 +331,6 @@ export default function BookingScreen() {
           ))}
         </Card>
       )}
-
-      {/* Pending Cash Payments */}
-      {pendingCashPayments.length > 0 && (
-        <Card style={styles.pendingPaymentsCard}>
-          <Text style={styles.sectionTitle}>Pending Payment Requests</Text>
-          {pendingCashPayments.map((payment) => (
-            <View key={payment.id} style={styles.pendingPaymentItem}>
-              <View style={styles.pendingPaymentInfo}>
-                <Text style={styles.pendingPaymentAmount}>₹{payment.amount}</Text>
-                <Text style={styles.pendingPaymentType}>
-                  {payment.booking_id ? 'Seat Booking Payment' : 'Admission Payment'}
-                </Text>
-                <Text style={styles.pendingPaymentDate}>
-                  Submitted: {new Date(payment.created_at).toLocaleDateString('en-IN')}
-                </Text>
-              </View>
-              <View style={styles.pendingBadge}>
-                <Clock size={16} color="#FFFFFF" />
-                <Text style={styles.pendingText}>PENDING</Text>
-              </View>
-            </View>
-          ))}
-          <Text style={styles.pendingNote}>
-            ⏳ Please wait for admin approval before making additional bookings.
-          </Text>
-        </Card>
-      )}
-
     </ScrollView>
   );
 }

@@ -7,22 +7,18 @@ import { Card } from '@/components/ui/Card';
 import { Button } from '@/components/ui/Button';
 import { Input } from '@/components/ui/Input';
 import { LoadingSpinner } from '@/components/ui/LoadingSpinner';
-import { Admission, User } from '@/types/database';
-import { formatDate, calculateRemainingDays } from '@/utils/dateUtils';
-import { ArrowLeft, Search, Calendar, TriangleAlert as AlertTriangle, CircleCheck as CheckCircle, Clock } from 'lucide-react-native';
-
-interface StudentWithAdmission extends User {
-  admission?: Admission;
-}
+import { User } from '@/types/database';
+import { formatDate } from '@/utils/dateUtils';
+import { ArrowLeft, Search, CircleCheck as CheckCircle, Clock, X as XIcon, UserCheck } from 'lucide-react-native';
 
 export default function AdminStudentsScreen() {
   const { user } = useAuth();
-  const [students, setStudents] = useState<StudentWithAdmission[]>([]);
-  const [filteredStudents, setFilteredStudents] = useState<StudentWithAdmission[]>([]);
+  const [students, setStudents] = useState<User[]>([]);
+  const [filteredStudents, setFilteredStudents] = useState<User[]>([]);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
-  const [filter, setFilter] = useState<'all' | 'active' | 'expiring' | 'expired'>('all');
+  const [filter, setFilter] = useState<'all' | 'pending' | 'approved' | 'rejected'>('all');
 
   // Redirect if not admin
   if (user?.role !== 'admin') {
@@ -42,24 +38,12 @@ export default function AdminStudentsScreen() {
     try {
       const { data, error } = await supabase
         .from('users')
-        .select(`
-          *,
-          admission:admissions(*)
-        `)
+        .select('*')
         .eq('role', 'student')
         .order('created_at', { ascending: false });
 
       if (error) throw error;
-
-      // Process the data to get the latest admission for each student
-      const processedStudents = data.map(student => ({
-        ...student,
-        admission: Array.isArray(student.admission) 
-          ? student.admission.sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime())[0]
-          : student.admission
-      }));
-
-      setStudents(processedStudents);
+      setStudents(data || []);
     } catch (error) {
       console.error('Error fetching students:', error);
     } finally {
@@ -81,25 +65,14 @@ export default function AdminStudentsScreen() {
 
     // Apply status filter
     switch (filter) {
-      case 'active':
-        filtered = filtered.filter(student => 
-          student.admission?.payment_status === 'paid' && 
-          student.admission?.end_date && 
-          new Date(student.admission.end_date) > new Date()
-        );
+      case 'pending':
+        filtered = filtered.filter(student => student.approval_status === 'pending');
         break;
-      case 'expiring':
-        filtered = filtered.filter(student => {
-          if (!student.admission?.end_date || student.admission.payment_status !== 'paid') return false;
-          const remainingDays = calculateRemainingDays(student.admission.end_date);
-          return remainingDays <= 7 && remainingDays > 0;
-        });
+      case 'approved':
+        filtered = filtered.filter(student => student.approval_status === 'approved');
         break;
-      case 'expired':
-        filtered = filtered.filter(student => 
-          student.admission?.end_date && 
-          new Date(student.admission.end_date) <= new Date()
-        );
+      case 'rejected':
+        filtered = filtered.filter(student => student.approval_status === 'rejected');
         break;
     }
 
@@ -112,27 +85,17 @@ export default function AdminStudentsScreen() {
     setRefreshing(false);
   };
 
-  const extendSubscription = async (studentId: string, admissionId: string, months: number) => {
+  const updateApprovalStatus = async (studentId: string, status: 'approved' | 'rejected') => {
     try {
-      // Get current admission
-      const { data: admission, error: fetchError } = await supabase
-        .from('admissions')
-        .select('end_date')
-        .eq('id', admissionId)
-        .single();
-
-      if (fetchError) throw fetchError;
-
-      // Calculate new end date
-      const currentEndDate = new Date(admission.end_date || new Date());
-      const newEndDate = new Date(currentEndDate);
-      newEndDate.setMonth(newEndDate.getMonth() + months);
-
-      // Update admission
+      // Update user approval status
       const { error: updateError } = await supabase
-        .from('admissions')
-        .update({ end_date: newEndDate.toISOString() })
-        .eq('id', admissionId);
+        .from('users')
+        .update({ 
+          approval_status: status,
+          approved_by: user?.id,
+          approved_at: new Date().toISOString()
+        })
+        .eq('id', studentId);
 
       if (updateError) throw updateError;
 
@@ -141,52 +104,63 @@ export default function AdminStudentsScreen() {
         .from('admin_logs')
         .insert({
           admin_id: user?.id,
-          action: 'extend_subscription',
+          action: `${status}_student_account`,
           target_user_id: studentId,
-          details: { months, new_end_date: newEndDate.toISOString() }
+          details: { approval_status: status }
         });
 
-      Alert.alert('Success', `Subscription extended by ${months} month${months > 1 ? 's' : ''}`);
+      // Send notification to student
+      await supabase
+        .from('notifications')
+        .insert({
+          user_id: studentId,
+          title: `Account ${status === 'approved' ? 'Approved' : 'Rejected'}`,
+          message: status === 'approved' 
+            ? 'Your account has been approved! You can now book seats and use library services.'
+            : 'Your account application has been rejected. Please contact the library for more information.',
+          type: status === 'approved' ? 'success' : 'error',
+          created_by: user?.id
+        });
+
+      Alert.alert('Success', `Student account ${status} successfully`);
       await fetchStudents();
     } catch (error) {
-      console.error('Error extending subscription:', error);
-      Alert.alert('Error', 'Failed to extend subscription');
+      console.error('Error updating approval status:', error);
+      Alert.alert('Error', 'Failed to update approval status');
     }
   };
 
-  const confirmExtension = (student: StudentWithAdmission, months: number) => {
+  const confirmApprovalAction = (student: User, action: 'approved' | 'rejected') => {
     Alert.alert(
-      'Extend Subscription',
-      `Extend ${student.full_name}'s subscription by ${months} month${months > 1 ? 's' : ''}?`,
+      `${action === 'approved' ? 'Approve' : 'Reject'} Account`,
+      `Are you sure you want to ${action === 'approved' ? 'approve' : 'reject'} ${student.full_name}'s account?`,
       [
         { text: 'Cancel', style: 'cancel' },
         {
-          text: 'Extend',
-          onPress: () => extendSubscription(student.id, student.admission!.id, months)
+          text: action === 'approved' ? 'Approve' : 'Reject',
+          style: action === 'approved' ? 'default' : 'destructive',
+          onPress: () => updateApprovalStatus(student.id, action)
         }
       ]
     );
   };
 
-  const getStatusColor = (student: StudentWithAdmission): string => {
-    if (!student.admission || student.admission.payment_status !== 'paid') return '#64748B';
-    if (!student.admission.end_date) return '#64748B';
-    
-    const remainingDays = calculateRemainingDays(student.admission.end_date);
-    if (remainingDays <= 0) return '#EF4444';
-    if (remainingDays <= 7) return '#F59E0B';
-    return '#10B981';
+  const getStatusColor = (status: string): string => {
+    switch (status) {
+      case 'approved': return '#10B981';
+      case 'rejected': return '#EF4444';
+      case 'pending': return '#F59E0B';
+      default: return '#64748B';
+    }
   };
 
-  const getStatusText = (student: StudentWithAdmission): string => {
-    if (!student.admission) return 'No Admission';
-    if (student.admission.payment_status !== 'paid') return 'Payment Pending';
-    if (!student.admission.end_date) return 'No End Date';
-    
-    const remainingDays = calculateRemainingDays(student.admission.end_date);
-    if (remainingDays <= 0) return 'Expired';
-    if (remainingDays <= 7) return `Expires in ${remainingDays} days`;
-    return `${remainingDays} days remaining`;
+  const getStatusIcon = (status: string) => {
+    switch (status) {
+      case 'approved': return <CheckCircle size={16} color="#FFFFFF" />;
+      case 'rejected': return <XIcon size={16} color="#FFFFFF" />;
+      case 'pending': return <Clock size={16} color="#FFFFFF" />;
+      default: return <Clock size={16} color="#FFFFFF" />;
+    }
   };
 
   if (loading) {
@@ -207,7 +181,7 @@ export default function AdminStudentsScreen() {
           <ArrowLeft size={20} color="#2563EB" />
         </Button>
         <Text style={styles.title}>Student Management</Text>
-        <Text style={styles.subtitle}>Manage student profiles and subscriptions</Text>
+        <Text style={styles.subtitle}>Approve or reject student accounts</Text>
       </View>
 
       {/* Search and Filters */}
@@ -225,9 +199,9 @@ export default function AdminStudentsScreen() {
         <View style={styles.filterButtons}>
           {[
             { key: 'all', label: 'All' },
-            { key: 'active', label: 'Active' },
-            { key: 'expiring', label: 'Expiring' },
-            { key: 'expired', label: 'Expired' }
+            { key: 'pending', label: 'Pending' },
+            { key: 'approved', label: 'Approved' },
+            { key: 'rejected', label: 'Rejected' }
           ].map((filterOption) => (
             <TouchableOpacity
               key={filterOption.key}
@@ -271,61 +245,41 @@ export default function AdminStudentsScreen() {
                   <View style={styles.statusContainer}>
                     <View style={[
                       styles.statusBadge,
-                      { backgroundColor: getStatusColor(student) }
+                      { backgroundColor: getStatusColor(student.approval_status) }
                     ]}>
+                      {getStatusIcon(student.approval_status)}
                       <Text style={styles.statusText}>
-                        {getStatusText(student)}
+                        {student.approval_status.toUpperCase()}
                       </Text>
                     </View>
                   </View>
                 </View>
 
-                {student.admission && (
-                  <View style={styles.admissionDetails}>
+                <View style={styles.studentDetails}>
+                  <Text style={styles.detailText}>
+                    Registered: {formatDate(student.created_at)}
+                  </Text>
+                  {student.approved_at && (
                     <Text style={styles.detailText}>
-                      Course: {student.admission.course_name}
+                      {student.approval_status === 'approved' ? 'Approved' : 'Rejected'}: {formatDate(student.approved_at)}
                     </Text>
-                    <Text style={styles.detailText}>
-                      Shifts: {student.admission.selected_shifts.join(', ')}
-                    </Text>
-                    <Text style={styles.detailText}>
-                      Duration: {student.admission.duration} months
-                    </Text>
-                    {student.admission.start_date && (
-                      <Text style={styles.detailText}>
-                        Started: {formatDate(student.admission.start_date)}
-                      </Text>
-                    )}
-                    {student.admission.end_date && (
-                      <Text style={styles.detailText}>
-                        Ends: {formatDate(student.admission.end_date)}
-                      </Text>
-                    )}
-                  </View>
-                )}
+                  )}
+                </View>
 
-                {student.admission?.payment_status === 'paid' && (
+                {student.approval_status === 'pending' && (
                   <View style={styles.actionButtons}>
                     <Button
-                      title="Extend 1M"
-                      onPress={() => confirmExtension(student, 1)}
+                      title="Approve"
+                      onPress={() => confirmApprovalAction(student, 'approved')}
                       size="small"
-                      variant="outline"
-                      style={styles.extendButton}
+                      style={[styles.actionButton, styles.approveButton]}
                     />
                     <Button
-                      title="Extend 3M"
-                      onPress={() => confirmExtension(student, 3)}
+                      title="Reject"
+                      onPress={() => confirmApprovalAction(student, 'rejected')}
                       size="small"
-                      variant="outline"
-                      style={styles.extendButton}
-                    />
-                    <Button
-                      title="Extend 6M"
-                      onPress={() => confirmExtension(student, 6)}
-                      size="small"
-                      variant="outline"
-                      style={styles.extendButton}
+                      variant="danger"
+                      style={[styles.actionButton, styles.rejectButton]}
                     />
                   </View>
                 )}
@@ -463,16 +417,19 @@ const styles = StyleSheet.create({
     alignItems: 'flex-end',
   },
   statusBadge: {
+    flexDirection: 'row',
+    alignItems: 'center',
     paddingHorizontal: 8,
     paddingVertical: 4,
     borderRadius: 12,
+    gap: 4,
   },
   statusText: {
     fontSize: 12,
     color: '#FFFFFF',
     fontWeight: 'bold',
   },
-  admissionDetails: {
+  studentDetails: {
     marginBottom: 16,
   },
   detailText: {
@@ -484,7 +441,13 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     gap: 8,
   },
-  extendButton: {
+  actionButton: {
     flex: 1,
+  },
+  approveButton: {
+    backgroundColor: '#10B981',
+  },
+  rejectButton: {
+    backgroundColor: '#EF4444',
   },
 });

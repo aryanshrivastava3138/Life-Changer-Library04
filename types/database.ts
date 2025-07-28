@@ -4,6 +4,9 @@ export interface User {
   full_name: string;
   mobile_number: string;
   role: 'student' | 'admin';
+  approval_status: 'pending' | 'approved' | 'rejected';
+  approved_by?: string;
+  approved_at?: string;
   created_at: string;
 }
 

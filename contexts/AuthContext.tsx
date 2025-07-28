@@ -231,6 +231,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
             full_name: fullName.trim(),
             mobile_number: mobileNumber.trim(),
             role: 'student',
+            approval_status: 'pending',
           });
 
         if (profileError) {

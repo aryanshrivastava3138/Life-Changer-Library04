@@ -31,7 +31,6 @@ interface AttendanceStatus {
 
 export default function AttendanceScreen() {
   const { user } = useAuth();
-  const [admission, setAdmission] = useState<Admission | null>(null);
   const [todayAttendance, setTodayAttendance] = useState<Attendance[]>([]);
   const [recentAttendance, setRecentAttendance] = useState<Attendance[]>([]);
   const [attendanceStatus, setAttendanceStatus] = useState<AttendanceStatus[]>([]);
@@ -41,6 +40,7 @@ export default function AttendanceScreen() {
   const [currentTime, setCurrentTime] = useState(getCurrentTimeString());
 
   const today = new Date().toISOString().split('T')[0];
+  const availableShifts = ['morning', 'noon', 'evening', 'night']; // All shifts available for approved users
 
   useEffect(() => {
     fetchData();
@@ -67,18 +67,6 @@ export default function AttendanceScreen() {
     if (!user) return;
 
     try {
-      // Fetch admission data - get the most recent admission
-      const { data: admissionData } = await supabase
-        .from('admissions')
-        .select('*')
-        .eq('user_id', user.id)
-        .order('created_at', { ascending: false })
-        .limit(1);
-
-      if (admissionData && admissionData.length > 0) {
-        setAdmission(admissionData[0]);
-      }
-
       // Fetch today's attendance
       const { data: todayData } = await supabase
         .from('attendance')
@@ -114,9 +102,7 @@ export default function AttendanceScreen() {
   };
 
   const updateAttendanceStatus = () => {
-    if (!admission) return;
-
-    const statusArray: AttendanceStatus[] = admission.selected_shifts.map(shift => {
+    const statusArray: AttendanceStatus[] = availableShifts.map(shift => {
       const shiftAttendance = todayAttendance.find(record => record.shift === shift);
       const hasCheckedIn = shiftAttendance && shiftAttendance.check_in_time;
       const isCompleted = shiftAttendance && shiftAttendance.check_in_time && shiftAttendance.check_out_time;
@@ -152,7 +138,7 @@ export default function AttendanceScreen() {
   };
 
   const handleCheckIn = async (shift: string) => {
-    if (!user || !admission) return;
+    if (!user) return;
 
     // Check if current time is within the shift time range
     if (!isCurrentTimeInShift(shift)) {
@@ -280,20 +266,20 @@ export default function AttendanceScreen() {
     return <LoadingSpinner />;
   }
 
-  if (!admission || admission.payment_status !== 'paid') {
+  if (user?.approval_status !== 'approved') {
     return (
       <View style={styles.container}>
         <Card style={styles.messageCard}>
-          <Text style={styles.messageTitle}>Complete Your Admission</Text>
+          <Text style={styles.messageTitle}>Account Approval Required</Text>
           <Text style={styles.messageText}>
-            Please complete your admission and payment to track attendance.
+            Your account needs to be approved by an administrator before you can track attendance.
           </Text>
         </Card>
       </View>
     );
   }
 
-  const validShifts = getValidShiftsForCurrentTime(admission.selected_shifts);
+  const validShifts = getValidShiftsForCurrentTime(availableShifts);
 
   return (
     <ScrollView style={styles.container}>
@@ -445,7 +431,7 @@ export default function AttendanceScreen() {
       <Card style={styles.timingsCard}>
         <Text style={styles.sectionTitle}>Shift Timings</Text>
         <View style={styles.timingsList}>
-          {admission.selected_shifts.map((shift) => (
+          {availableShifts.map((shift) => (
             <View key={shift} style={styles.timingItem}>
               <Text style={styles.timingShift}>{shift.toUpperCase()}</Text>
               <Text style={styles.timingTime}>{formatShiftTime(shift)}</Text>
