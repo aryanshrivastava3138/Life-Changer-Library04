@@ -2,11 +2,10 @@ import { useState, useEffect } from 'react';
 import { View, Text, StyleSheet, ScrollView, RefreshControl, TouchableOpacity } from 'react-native';
 import { router } from 'expo-router';
 import { useAuth } from '@/contexts/AuthContext';
-import { supabase } from '@/lib/supabase';
+import { SeatBookingService } from '@/lib/firebase';
 import { Button } from '@/components/ui/Button';
 import { Card } from '@/components/ui/Card';
 import { LoadingSpinner } from '@/components/ui/LoadingSpinner';
-import { Admission, SeatBooking } from '@/types/database';
 import { SHIFTS } from '@/types/shifts';
 import { calculateRemainingDays, formatDate } from '@/utils/dateUtils';
 import { 
@@ -67,15 +66,12 @@ export default function HomeScreen() {
 
     try {
       // Fetch seat bookings for today
-      const { data: bookingsData } = await supabase
-        .from('seat_bookings')
-        .select('shift')
-        .eq('booking_date', today)
-        .eq('booking_status', 'booked');
+      const bookingsData = await SeatBookingService.getBookingsByDate(today);
+      const bookedBookings = bookingsData.filter(booking => booking.bookingStatus === 'booked');
 
       // Calculate availability for each shift
       const availability: ShiftAvailability[] = SHIFTS.map(shift => {
-        const bookedCount = bookingsData?.filter(booking => booking.shift === shift.id).length || 0;
+        const bookedCount = bookedBookings.filter(booking => booking.shift === shift.id).length || 0;
         return {
           shift: shift.id,
           shiftName: shift.name,
@@ -133,7 +129,7 @@ export default function HomeScreen() {
 
         <Card style={styles.statusCard}>
           <View style={styles.rejectedContent}>
-            <XIcon size={64} color="#EF4444" style={styles.statusIcon} />
+            <AlertTriangle size={64} color="#EF4444" style={styles.statusIcon} />
             <Text style={styles.rejectedTitle}>Account Rejected</Text>
             <Text style={styles.rejectedDescription}>
               Your account application has been rejected. Please contact the library administration for more information.

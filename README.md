@@ -1,6 +1,6 @@
 # Life Changer Library Management System
 
-A comprehensive library management system built with Expo and Supabase for managing student admissions, seat bookings, attendance tracking, and payments.
+A comprehensive library management system built with Expo and Firebase for managing student admissions, seat bookings, attendance tracking, and payments.
 
 ## Features
 
@@ -13,108 +13,105 @@ A comprehensive library management system built with Expo and Supabase for manag
 
 ## Setup Instructions
 
-### 1. Supabase Setup
+### 1. Firebase Setup
 
-1. Create a new project at [Supabase](https://supabase.com)
-2. Go to Settings > API in your Supabase dashboard
-3. Copy your Project URL and anon public key
+1. Create a new project at [Firebase Console](https://console.firebase.google.com)
+2. Enable Authentication with Email/Password provider
+3. Create a Firestore database
+4. Get your Firebase configuration from Project Settings
 4. Create a `.env` file in the root directory and add your credentials:
 
 ```env
-EXPO_PUBLIC_SUPABASE_URL=https://your-project-ref.supabase.co
-EXPO_PUBLIC_SUPABASE_ANON_KEY=your-anon-key-here
+EXPO_PUBLIC_FIREBASE_API_KEY=your_firebase_api_key_here
+EXPO_PUBLIC_FIREBASE_AUTH_DOMAIN=your_project_id.firebaseapp.com
+EXPO_PUBLIC_FIREBASE_PROJECT_ID=your_project_id_here
+EXPO_PUBLIC_FIREBASE_STORAGE_BUCKET=your_project_id.appspot.com
+EXPO_PUBLIC_FIREBASE_MESSAGING_SENDER_ID=your_messaging_sender_id_here
+EXPO_PUBLIC_FIREBASE_APP_ID=your_app_id_here
 ```
 
 **Important**: 
-- Make sure the URL starts with `https://` and ends with `.supabase.co`
-- The anon key should be a long JWT-like string (usually 100+ characters)
+- Replace all placeholder values with your actual Firebase configuration
 - After updating the `.env` file, restart your development server with `npm run dev`
 
-### Troubleshooting Authentication Issues
+### 2. Firestore Setup
 
-If you encounter "Email address is invalid" errors:
+The app will automatically create the following collections when you use the features:
 
-**MOST COMMON FIX**: This error usually means email confirmations are enabled in your Supabase project.
+- `users` - User profiles and roles
+- `admissions` - Student admission records
+- `seat_bookings` - Seat reservation data
+- `attendance` - Check-in/check-out records
+- `payments` - Payment transaction history
+- `notifications` - System notifications
+- `admin_logs` - Admin action audit trail
 
-1. **Disable Email Confirmations (CRITICAL)**:
-   - Go to your Supabase Dashboard
-   - Navigate to Authentication > Settings
-   - Find "Enable email confirmations" and **DISABLE** it
-   - Click "Save" at the bottom of the page
-   - Restart your development server with `npm run dev`
+### 3. Firebase Security Rules
 
-1. **Verify Environment Variables**: 
-   - Check that your `.env` file exists in the root directory
-   - Ensure `EXPO_PUBLIC_SUPABASE_URL` and `EXPO_PUBLIC_SUPABASE_ANON_KEY` are correctly set
-   - Restart the development server after making changes
+Set up Firestore security rules in the Firebase Console:
 
-2. **Check Supabase Dashboard**:
-   - Go to Settings > API and verify your Project URL and anon public key
-   - Go to Authentication > Settings:
-     - **DISABLE "Enable email confirmations"** (most important)
-     - Set "Site URL" to `http://localhost:8081` for development
-     - Ensure "Enable phone confirmations" is also disabled
-   - Check that there are no domain restrictions in Authentication settings
+```javascript
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    // Users can read/write their own data
+    match /users/{userId} {
+      allow read, write: if request.auth != null && request.auth.uid == userId;
+      allow read: if request.auth != null && 
+        get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'admin';
+    }
+    
+    // Other collections with similar patterns
+    match /{document=**} {
+      allow read, write: if request.auth != null;
+    }
+  }
+}
+```
 
-3. **Review Console Logs**: 
-   - Check the terminal/console for detailed error messages
-   - Look for Supabase connection test results
-   - Follow the detailed configuration steps printed in the console
+### 4. Authentication Setup
 
-4. **Additional Checks**:
-   - Ensure your Supabase project is not paused
-   - Check that user registration is enabled in Authentication > Settings
-   - Verify there are no email domain restrictions
-   - Make sure your project has the correct billing plan for the features you're using
-### 2. Database Setup
-
-Run the migration files in your Supabase SQL editor in order:
-
-1. `supabase/migrations/001_create_users_table.sql`
-2. `supabase/migrations/002_create_admissions_table.sql`
-3. `supabase/migrations/003_create_seat_bookings_table.sql`
-4. `supabase/migrations/004_create_attendance_table.sql`
-5. `supabase/migrations/005_create_payment_history_table.sql`
-
-### 3. Authentication Setup
-
-In your Supabase dashboard:
-1. Go to Authentication > Settings
-2. Disable "Enable email confirmations" for development
-3. Configure any additional auth providers if needed
-
-### 4. Row Level Security
-
-All tables have Row Level Security (RLS) enabled with appropriate policies:
-- Users can only access their own data
-- Admins have broader access where appropriate
-- Public read access for seat availability
+In your Firebase console:
+1. Go to Authentication > Sign-in method
+2. Enable "Email/Password" provider
+3. Disable "Email link (passwordless sign-in)" unless needed
 
 ## Database Schema
 
-### Users Table
-- Stores user profiles linked to Supabase Auth
+### Users Collection
+- Stores user profiles linked to Firebase Auth
 - Includes role-based access (student/admin)
+- Approval status tracking
 
-### Admissions Table
+### Admissions Collection
 - Complete student admission details
 - Course information and shift preferences
 - Payment status tracking
 
-### Seat Bookings Table
+### Seat Bookings Collection
 - Seat reservation system
 - Shift-based booking with date tracking
 - Prevents double booking
 
-### Attendance Table
+### Attendance Collection
 - Check-in/check-out tracking
 - Shift-based attendance records
 - Historical attendance data
 
-### Payment History Table
+### Payment History Collection
 - Complete payment transaction records
 - Receipt number generation
 - Duration and amount tracking
+
+### Notifications Collection
+- System notifications for users
+- Admin-to-student messaging
+- Read status tracking
+
+### Admin Logs Collection
+- Audit trail for admin actions
+- User approval/rejection logs
+- System activity tracking
 
 ## Development
 
@@ -123,12 +120,14 @@ All tables have Row Level Security (RLS) enabled with appropriate policies:
 npm install
 ```
 
-2. Start the development server:
+2. Set up your Firebase configuration in `.env`
+
+3. Start the development server:
 ```bash
 npm run dev
 ```
 
-3. Open the app in your browser or Expo Go app
+4. Open the app in your browser or Expo Go app
 
 ## Deployment
 
@@ -137,16 +136,27 @@ This app can be deployed to:
 - Vercel (for web)
 - Netlify (for web)
 
-Make sure to update your environment variables in your deployment platform.
+Make sure to update your environment variables in your deployment platform and configure Firebase for production.
 
 ## Security Features
 
-- Row Level Security on all database tables
-- Secure authentication with Supabase Auth
-- Input validation and sanitization
+- Firebase Authentication with secure email/password
+- Firestore security rules for data protection
 - Role-based access control
-- Secure payment processing
+- Input validation and sanitization
+- Secure file uploads with Firebase Storage
+
+## Push Notifications
+
+The app is set up to use Firebase Cloud Messaging (FCM) for push notifications:
+- Renewal alerts
+- Admin messages to students
+- System notifications
 
 ## Support
 
-For issues or questions, please check the documentation or contact the development team.
+For issues or questions, please check the Firebase documentation or contact the development team.
+
+## Migration from Supabase
+
+This project has been migrated from Supabase to Firebase for better scalability and features. All data structures and functionality remain the same, but now use Firebase services for authentication, database, and storage.

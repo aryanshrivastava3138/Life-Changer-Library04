@@ -2,17 +2,16 @@ import { useState, useEffect } from 'react';
 import { View, Text, StyleSheet, ScrollView, Alert, TouchableOpacity } from 'react-native';
 import { router } from 'expo-router';
 import { useAuth } from '@/contexts/AuthContext';
-import { supabase } from '@/lib/supabase';
+import { UserService, NotificationService, AdminLogService } from '@/lib/firebase';
 import { Card } from '@/components/ui/Card';
 import { Button } from '@/components/ui/Button';
 import { Input } from '@/components/ui/Input';
 import { LoadingSpinner } from '@/components/ui/LoadingSpinner';
-import { User } from '@/types/database';
 import { ArrowLeft, Send, Users, User as UserIcon, Bell } from 'lucide-react-native';
 
 export default function AdminNotificationsScreen() {
   const { user } = useAuth();
-  const [students, setStudents] = useState<User[]>([]);
+  const [students, setStudents] = useState<any[]>([]);
   const [selectedStudents, setSelectedStudents] = useState<string[]>([]);
   const [title, setTitle] = useState('');
   const [message, setMessage] = useState('');
@@ -33,13 +32,7 @@ export default function AdminNotificationsScreen() {
 
   const fetchStudents = async () => {
     try {
-      const { data, error } = await supabase
-        .from('users')
-        .select('*')
-        .eq('role', 'student')
-        .order('full_name');
-
-      if (error) throw error;
+      const data = await UserService.getUsersByRole('student');
       setStudents(data || []);
     } catch (error) {
       console.error('Error fetching students:', error);
@@ -74,31 +67,28 @@ export default function AdminNotificationsScreen() {
       
       // Create notifications for selected students
       const notifications = targetStudents.map(studentId => ({
-        user_id: studentId,
+        userId: studentId,
         title: title.trim(),
         message: message.trim(),
         type: notificationType,
-        created_by: user?.id,
+        createdBy: user?.id,
       }));
 
-      const { error } = await supabase
-        .from('notifications')
-        .insert(notifications);
-
-      if (error) throw error;
+      // Create notifications in batch
+      await Promise.all(notifications.map(notification => 
+        NotificationService.createNotification(notification)
+      ));
 
       // Log admin action
-      await supabase
-        .from('admin_logs')
-        .insert({
-          admin_id: user?.id,
+      await AdminLogService.createLog({
+          adminId: user?.id,
           action: 'send_notification',
           details: {
             title: title.trim(),
             message: message.trim(),
             type: notificationType,
-            recipient_count: targetStudents.length,
-            send_to_all: sendToAll
+            recipientCount: targetStudents.length,
+            sendToAll: sendToAll
           }
         });
 
@@ -234,7 +224,7 @@ export default function AdminNotificationsScreen() {
                       styles.studentName,
                       selectedStudents.includes(student.id) && styles.studentNameSelected
                     ]}>
-                      {student.full_name}
+                      {student.fullName}
                     </Text>
                     <Text style={[
                       styles.studentEmail,

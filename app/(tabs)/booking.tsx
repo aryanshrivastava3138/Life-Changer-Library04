@@ -1,11 +1,10 @@
 import { useState, useEffect } from 'react';
 import { View, Text, StyleSheet, ScrollView, TouchableOpacity, Alert, Modal } from 'react-native';
 import { useAuth } from '@/contexts/AuthContext';
-import { supabase } from '@/lib/supabase';
+import { SeatBookingService } from '@/lib/firebase';
 import { Card } from '@/components/ui/Card';
 import { Button } from '@/components/ui/Button';
 import { LoadingSpinner } from '@/components/ui/LoadingSpinner';
-import { Admission, SeatBooking } from '@/types/database';
 import { SHIFTS } from '@/types/shifts';
 import { generateSeatNumbers } from '@/utils/shiftUtils';
 import { MapPin, Clock, CircleCheck as CheckCircle, CircleAlert as AlertCircle, CreditCard, Banknote, X } from 'lucide-react-native';
@@ -13,8 +12,8 @@ import { MapPin, Clock, CircleCheck as CheckCircle, CircleAlert as AlertCircle, 
 export default function BookingScreen() {
   const { user } = useAuth();
   const [selectedShift, setSelectedShift] = useState<string>('');
-  const [seatBookings, setSeatBookings] = useState<SeatBooking[]>([]);
-  const [userBookings, setUserBookings] = useState<SeatBooking[]>([]);
+  const [seatBookings, setSeatBookings] = useState<any[]>([]);
+  const [userBookings, setUserBookings] = useState<any[]>([]);
   const [selectedSeat, setSelectedSeat] = useState<string>('');
   const [loading, setLoading] = useState(true);
   const [booking, setBooking] = useState(false);
@@ -37,17 +36,14 @@ export default function BookingScreen() {
 
       // Fetch all seat bookings for today
       const today = new Date().toISOString().split('T')[0];
-      const { data: bookingsData } = await supabase
-        .from('seat_bookings')
-        .select('*')
-        .eq('booking_date', today)
-        .eq('booking_status', 'booked');
+      const bookingsData = await SeatBookingService.getBookingsByDate(today);
+      const bookedBookings = bookingsData.filter(booking => booking.bookingStatus === 'booked');
 
-      if (bookingsData) {
-        setSeatBookings(bookingsData);
+      if (bookedBookings) {
+        setSeatBookings(bookedBookings);
         
         // Filter user's bookings
-        const userBookingsData = bookingsData.filter(booking => booking.user_id === user.id);
+        const userBookingsData = bookedBookings.filter(booking => booking.userId === user.id);
         setUserBookings(userBookingsData);
       }
     } catch (error) {
@@ -65,7 +61,7 @@ export default function BookingScreen() {
     if (existingBooking) {
       Alert.alert(
         'Already Booked',
-        `You've already booked seat ${existingBooking.seat_number} for the ${selectedShift} shift.`,
+        `You've already booked seat ${existingBooking.seatNumber} for the ${selectedShift} shift.`,
         [{ text: 'OK' }]
       );
       return;
@@ -83,19 +79,13 @@ export default function BookingScreen() {
     try {
       const today = new Date().toISOString().split('T')[0];
       
-      const { data: bookingData, error: bookingError } = await supabase
-        .from('seat_bookings')
-        .insert({
-          user_id: user.id,
+      const bookingData = await SeatBookingService.createBooking({
+          userId: user.id,
           shift: selectedShift,
-          seat_number: selectedSeat,
-          booking_status: 'booked',
-          booking_date: today,
-        })
-        .select()
-        .single();
-
-      if (bookingError) throw bookingError;
+          seatNumber: selectedSeat,
+          bookingStatus: 'booked',
+          bookingDate: today,
+        });
 
       Alert.alert(
         'Booking Confirmed!',
@@ -117,18 +107,18 @@ export default function BookingScreen() {
   const isSeatBooked = (seatNumber: string, shift: string): boolean => {
     return seatBookings.some(
       booking => 
-        booking.seat_number === seatNumber && 
+        booking.seatNumber === seatNumber && 
         booking.shift === shift && 
-        booking.booking_status === 'booked'
+        booking.bookingStatus === 'booked'
     );
   };
 
   const isUserSeat = (seatNumber: string, shift: string): boolean => {
     return userBookings.some(
       booking => 
-        booking.seat_number === seatNumber && 
+        booking.seatNumber === seatNumber && 
         booking.shift === shift && 
-        booking.booking_status === 'booked'
+        booking.bookingStatus === 'booked'
     );
   };
 
@@ -138,7 +128,7 @@ export default function BookingScreen() {
 
   const getUserSeatForShift = (shift: string): string | null => {
     const booking = userBookings.find(booking => booking.shift === shift);
-    return booking ? booking.seat_number : null;
+    return booking ? booking.seatNumber : null;
   };
 
   if (loading) {
@@ -314,15 +304,15 @@ export default function BookingScreen() {
             <View key={booking.id} style={styles.bookingItem}>
               <View style={styles.bookingInfo}>
                 <Text style={styles.bookingShift}>{booking.shift.toUpperCase()}</Text>
-                <Text style={styles.bookingSeat}>Seat {booking.seat_number}</Text>
+                <Text style={styles.bookingSeat}>Seat {booking.seatNumber}</Text>
                 <Text style={[
                   styles.bookingStatus,
-                  { color: booking.booking_status === 'booked' ? '#10B981' : '#F59E0B' }
+                  { color: booking.bookingStatus === 'booked' ? '#10B981' : '#F59E0B' }
                 ]}>
-                  {booking.booking_status === 'booked' ? 'Approved' : 'Pending Approval'}
+                  {booking.bookingStatus === 'booked' ? 'Approved' : 'Pending Approval'}
                 </Text>
               </View>
-              {booking.booking_status === 'booked' ? (
+              {booking.bookingStatus === 'booked' ? (
                 <CheckCircle size={20} color="#10B981" />
               ) : (
                 <Clock size={20} color="#F59E0B" />

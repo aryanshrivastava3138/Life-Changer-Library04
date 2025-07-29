@@ -1,138 +1,97 @@
+// Firebase Firestore document interfaces
 export interface User {
   id: string;
   email: string;
-  full_name: string;
-  mobile_number: string;
+  fullName: string;
+  mobileNumber: string;
   role: 'student' | 'admin';
-  approval_status: 'pending' | 'approved' | 'rejected';
-  approved_by?: string;
-  approved_at?: string;
-  created_at: string;
+  approvalStatus: 'pending' | 'approved' | 'rejected';
+  approvedBy?: string;
+  approvedAt?: any;
+  createdAt: any;
+  updatedAt: any;
 }
 
 export interface Admission {
   id: string;
-  user_id: string;
+  userId: string;
   name: string;
   age: number;
-  contact_number: string;
-  full_address: string;
+  contactNumber: string;
+  fullAddress: string;
   email: string;
-  course_name: string;
-  father_name: string;
-  father_contact: string;
+  courseName: string;
+  fatherName: string;
+  fatherContact: string;
   duration: 1 | 3 | 6;
-  selected_shifts: string[];
-  registration_fee: number;
-  shift_fee: number;
-  total_amount: number;
-  payment_status: 'pending' | 'paid';
-  payment_date?: string;
-  start_date?: string;
-  end_date?: string;
-  created_at: string;
+  selectedShifts: string[];
+  registrationFee: number;
+  shiftFee: number;
+  totalAmount: number;
+  paymentStatus: 'pending' | 'paid';
+  paymentDate?: any;
+  startDate?: any;
+  endDate?: any;
+  createdAt: any;
+  updatedAt: any;
 }
 
 export interface SeatBooking {
   id: string;
-  user_id: string;
+  userId: string;
   shift: 'morning' | 'noon' | 'evening' | 'night';
-  seat_number: string;
-  booking_status: 'booked' | 'available';
-  booking_date: string;
-  created_at: string;
+  seatNumber: string;
+  bookingStatus: 'booked' | 'available' | 'pending';
+  bookingDate: string;
+  createdAt: any;
+  updatedAt: any;
 }
 
 export interface Attendance {
   id: string;
-  user_id: string;
+  userId: string;
   shift: string;
-  check_in_time?: string;
-  check_out_time?: string;
+  checkInTime?: any;
+  checkOutTime?: any;
   date: string;
-  created_at: string;
+  status?: 'present' | 'absent';
+  reason?: string;
+  createdAt: any;
+  updatedAt: any;
 }
 
-export interface StudySchedule {
+export interface Payment {
   id: string;
-  user_id: string;
-  title: string;
-  subject: string;
-  start_time: string;
-  end_time: string;
-  date: string;
-  reminder_enabled: boolean;
-  created_at: string;
-}
-
-export interface PaymentHistory {
-  id: string;
-  user_id: string;
+  userId: string;
   amount: number;
-  payment_mode: 'upi' | 'cash';
-  duration_months: number;
-  payment_date: string;
-  receipt_number: string;
-  approval_status?: 'pending' | 'approved' | 'rejected';
-  created_at: string;
-}
-
-export interface Notification {
-  id: string;
-  user_id: string;
-  title: string;
-  message: string;
-  type: 'info' | 'warning' | 'success' | 'error';
-  is_read: boolean;
-  created_by?: string;
-  created_at: string;
-}
-
-export interface CashPayment {
-  id: string;
-  user_id: string;
-  booking_id?: string;
-  admission_id?: string;
-  amount: number;
+  method: 'upi' | 'cash' | 'qr';
   status: 'pending' | 'approved' | 'rejected';
-  admin_notes?: string;
-  approved_by?: string;
-  approved_at?: string;
-  created_at: string;
+  durationMonths: number;
+  paymentDate: any;
+  receiptNumber: string;
+  approvalStatus?: 'pending' | 'approved' | 'rejected';
+  createdAt: any;
+  updatedAt: any;
 }
 
 export interface Notification {
   id: string;
-  user_id?: string;
+  userId?: string;
   title: string;
-  message: string;
+  body: string;
   type: 'info' | 'warning' | 'success' | 'error';
-  is_read: boolean;
-  created_by?: string;
-  created_at: string;
+  isRead: boolean;
+  createdBy?: string;
+  createdAt: any;
+  updatedAt: any;
 }
 
 export interface AdminLog {
   id: string;
-  admin_id: string;
+  adminId: string;
   action: string;
-  target_user_id?: string;
+  targetUserId?: string;
   details?: any;
-  created_at: string;
-}
-
-export interface DashboardStats {
-  total_students: number;
-  active_students: number;
-  total_bookings_today: number;
-  pending_cash_payments: number;
-  expiring_soon: number;
-  shift_occupancy: {
-    [key: string]: {
-      booked: number;
-      total: number;
-      percentage: number;
-    };
-  };
-  created_at: string;
+  createdAt: any;
+  updatedAt: any;
 }

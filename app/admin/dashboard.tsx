@@ -2,12 +2,26 @@ import { useState, useEffect } from 'react';
 import { View, Text, StyleSheet, ScrollView, RefreshControl, TouchableOpacity } from 'react-native';
 import { router } from 'expo-router';
 import { useAuth } from '@/contexts/AuthContext';
-import { supabase } from '@/lib/supabase';
+import { UserService, SeatBookingService, PaymentService } from '@/lib/firebase';
 import { Card } from '@/components/ui/Card';
 import { Button } from '@/components/ui/Button';
 import { LoadingSpinner } from '@/components/ui/LoadingSpinner';
-import { DashboardStats } from '@/types/database';
 import { Users, Calendar, CreditCard, TrendingUp, TriangleAlert as AlertTriangle, Settings, Bell, UserCheck, ChartBar as BarChart3, ArrowRight } from 'lucide-react-native';
+
+interface DashboardStats {
+  totalStudents: number;
+  activeStudents: number;
+  totalBookingsToday: number;
+  pendingCashPayments: number;
+  expiringSoon: number;
+  shiftOccupancy: {
+    [key: string]: {
+      booked: number;
+      total: number;
+      percentage: number;
+    };
+  };
+}
 
 export default function AdminDashboardScreen() {
   const { user } = useAuth();
@@ -27,11 +41,41 @@ export default function AdminDashboardScreen() {
 
   const fetchDashboardStats = async () => {
     try {
-      const { data, error } = await supabase.rpc('get_dashboard_stats');
+      // Fetch all required data
+      const [students, bookings, payments] = await Promise.all([
+        UserService.getUsersByRole('student'),
+        SeatBookingService.getBookingsByDate(new Date().toISOString().split('T')[0]),
+        PaymentService.getPaymentsByStatus('pending')
+      ]);
+
+      // Calculate stats
+      const totalStudents = students.length;
+      const activeStudents = students.filter(s => s.approvalStatus === 'approved').length;
+      const totalBookingsToday = bookings.length;
+      const pendingCashPayments = payments.length;
+      const expiringSoon = 0; // TODO: Calculate based on admission end dates
+
+      // Calculate shift occupancy
+      const shifts = ['morning', 'noon', 'evening', 'night'];
+      const shiftOccupancy: any = {};
       
-      if (error) throw error;
+      shifts.forEach(shift => {
+        const shiftBookings = bookings.filter(b => b.shift === shift && b.bookingStatus === 'booked');
+        shiftOccupancy[shift] = {
+          booked: shiftBookings.length,
+          total: 50,
+          percentage: Math.round((shiftBookings.length / 50) * 100)
+        };
+      });
       
-      setStats(data);
+      setStats({
+        totalStudents,
+        activeStudents,
+        totalBookingsToday,
+        pendingCashPayments,
+        expiringSoon,
+        shiftOccupancy
+      });
     } catch (error) {
       console.error('Error fetching dashboard stats:', error);
     } finally {
@@ -69,25 +113,25 @@ export default function AdminDashboardScreen() {
       <View style={styles.statsGrid}>
         <Card style={styles.statCard}>
           <Users size={32} color="#2563EB" />
-          <Text style={styles.statNumber}>{stats?.total_students || 0}</Text>
+          <Text style={styles.statNumber}>{stats?.totalStudents || 0}</Text>
           <Text style={styles.statLabel}>Total Students</Text>
         </Card>
 
         <Card style={styles.statCard}>
           <UserCheck size={32} color="#10B981" />
-          <Text style={styles.statNumber}>{stats?.active_students || 0}</Text>
+          <Text style={styles.statNumber}>{stats?.activeStudents || 0}</Text>
           <Text style={styles.statLabel}>Active Students</Text>
         </Card>
 
         <Card style={styles.statCard}>
           <Calendar size={32} color="#F59E0B" />
-          <Text style={styles.statNumber}>{stats?.total_bookings_today || 0}</Text>
+          <Text style={styles.statNumber}>{stats?.totalBookingsToday || 0}</Text>
           <Text style={styles.statLabel}>Today's Bookings</Text>
         </Card>
 
         <Card style={styles.statCard}>
           <AlertTriangle size={32} color="#EF4444" />
-          <Text style={styles.statNumber}>{stats?.pending_cash_payments || 0}</Text>
+          <Text style={styles.statNumber}>{stats?.pendingCashPayments || 0}</Text>
           <Text style={styles.statLabel}>Pending Payments</Text>
         </Card>
       </View>
@@ -96,7 +140,7 @@ export default function AdminDashboardScreen() {
       <Card style={styles.occupancyCard}>
         <Text style={styles.sectionTitle}>Today's Shift Occupancy</Text>
         <View style={styles.shiftsContainer}>
-          {stats?.shift_occupancy ? Object.entries(stats.shift_occupancy).map(([shift, data]) => (
+          {stats?.shiftOccupancy ? Object.entries(stats.shiftOccupancy).map(([shift, data]) => (
             <View key={shift} style={styles.shiftOccupancy}>
               <View style={styles.shiftHeader}>
                 <Text style={styles.shiftName}>{shift.toUpperCase()}</Text>
@@ -129,14 +173,14 @@ export default function AdminDashboardScreen() {
       </Card>
 
       {/* Alerts */}
-      {stats && stats.expiring_soon > 0 && (
+      {stats && stats.expiringSoon > 0 && (
         <Card style={styles.alertCard}>
           <View style={styles.alertHeader}>
             <AlertTriangle size={24} color="#F59E0B" />
             <Text style={styles.alertTitle}>Expiring Subscriptions</Text>
           </View>
           <Text style={styles.alertText}>
-            {stats.expiring_soon} student subscription{stats.expiring_soon > 1 ? 's' : ''} expiring within 7 days
+            {stats.expiringSoon} student subscription{stats.expiringSoon > 1 ? 's' : ''} expiring within 7 days
           </Text>
           <Button
             title="View Details"

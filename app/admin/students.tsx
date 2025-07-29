@@ -2,19 +2,18 @@ import { useState, useEffect } from 'react';
 import { View, Text, StyleSheet, ScrollView, RefreshControl, TouchableOpacity, Alert } from 'react-native';
 import { router } from 'expo-router';
 import { useAuth } from '@/contexts/AuthContext';
-import { supabase } from '@/lib/supabase';
+import { UserService, NotificationService, AdminLogService } from '@/lib/firebase';
 import { Card } from '@/components/ui/Card';
 import { Button } from '@/components/ui/Button';
 import { Input } from '@/components/ui/Input';
 import { LoadingSpinner } from '@/components/ui/LoadingSpinner';
-import { User } from '@/types/database';
 import { formatDate } from '@/utils/dateUtils';
 import { ArrowLeft, Search, CircleCheck as CheckCircle, Clock, X as XIcon, UserCheck } from 'lucide-react-native';
 
 export default function AdminStudentsScreen() {
   const { user } = useAuth();
-  const [students, setStudents] = useState<User[]>([]);
-  const [filteredStudents, setFilteredStudents] = useState<User[]>([]);
+  const [students, setStudents] = useState<any[]>([]);
+  const [filteredStudents, setFilteredStudents] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
@@ -36,13 +35,7 @@ export default function AdminStudentsScreen() {
 
   const fetchStudents = async () => {
     try {
-      const { data, error } = await supabase
-        .from('users')
-        .select('*')
-        .eq('role', 'student')
-        .order('created_at', { ascending: false });
-
-      if (error) throw error;
+      const data = await UserService.getUsersByRole('student');
       setStudents(data || []);
     } catch (error) {
       console.error('Error fetching students:', error);
@@ -66,13 +59,13 @@ export default function AdminStudentsScreen() {
     // Apply status filter
     switch (filter) {
       case 'pending':
-        filtered = filtered.filter(student => student.approval_status === 'pending');
+        filtered = filtered.filter(student => student.approvalStatus === 'pending');
         break;
       case 'approved':
-        filtered = filtered.filter(student => student.approval_status === 'approved');
+        filtered = filtered.filter(student => student.approvalStatus === 'approved');
         break;
       case 'rejected':
-        filtered = filtered.filter(student => student.approval_status === 'rejected');
+        filtered = filtered.filter(student => student.approvalStatus === 'rejected');
         break;
     }
 
@@ -88,38 +81,29 @@ export default function AdminStudentsScreen() {
   const updateApprovalStatus = async (studentId: string, status: 'approved' | 'rejected') => {
     try {
       // Update user approval status
-      const { error: updateError } = await supabase
-        .from('users')
-        .update({ 
-          approval_status: status,
-          approved_by: user?.id,
-          approved_at: new Date().toISOString()
-        })
-        .eq('id', studentId);
-
-      if (updateError) throw updateError;
+      await UserService.updateUser(studentId, {
+        approvalStatus: status,
+        approvedBy: user?.id,
+        approvedAt: new Date().toISOString()
+      });
 
       // Log admin action
-      await supabase
-        .from('admin_logs')
-        .insert({
-          admin_id: user?.id,
-          action: `${status}_student_account`,
-          target_user_id: studentId,
-          details: { approval_status: status }
-        });
+      await AdminLogService.createLog({
+        adminId: user?.id,
+        action: `${status}_student_account`,
+        targetUserId: studentId,
+        details: { approvalStatus: status }
+      });
 
       // Send notification to student
-      await supabase
-        .from('notifications')
-        .insert({
-          user_id: studentId,
+      await NotificationService.createNotification({
+          userId: studentId,
           title: `Account ${status === 'approved' ? 'Approved' : 'Rejected'}`,
           message: status === 'approved' 
             ? 'Your account has been approved! You can now book seats and use library services.'
             : 'Your account application has been rejected. Please contact the library for more information.',
           type: status === 'approved' ? 'success' : 'error',
-          created_by: user?.id
+          createdBy: user?.id
         });
 
       Alert.alert('Success', `Student account ${status} successfully`);
@@ -130,10 +114,10 @@ export default function AdminStudentsScreen() {
     }
   };
 
-  const confirmApprovalAction = (student: User, action: 'approved' | 'rejected') => {
+  const confirmApprovalAction = (student: any, action: 'approved' | 'rejected') => {
     Alert.alert(
       `${action === 'approved' ? 'Approve' : 'Reject'} Account`,
-      `Are you sure you want to ${action === 'approved' ? 'approve' : 'reject'} ${student.full_name}'s account?`,
+      `Are you sure you want to ${action === 'approved' ? 'approve' : 'reject'} ${student.fullName}'s account?`,
       [
         { text: 'Cancel', style: 'cancel' },
         {
@@ -238,18 +222,18 @@ export default function AdminStudentsScreen() {
               <View key={student.id} style={styles.studentItem}>
                 <View style={styles.studentHeader}>
                   <View style={styles.studentInfo}>
-                    <Text style={styles.studentName}>{student.full_name}</Text>
+                    <Text style={styles.studentName}>{student.fullName}</Text>
                     <Text style={styles.studentEmail}>{student.email}</Text>
-                    <Text style={styles.studentMobile}>{student.mobile_number}</Text>
+                    <Text style={styles.studentMobile}>{student.mobileNumber}</Text>
                   </View>
                   <View style={styles.statusContainer}>
                     <View style={[
                       styles.statusBadge,
-                      { backgroundColor: getStatusColor(student.approval_status) }
+                      { backgroundColor: getStatusColor(student.approvalStatus) }
                     ]}>
-                      {getStatusIcon(student.approval_status)}
+                      {getStatusIcon(student.approvalStatus)}
                       <Text style={styles.statusText}>
-                        {student.approval_status.toUpperCase()}
+                        {student.approvalStatus.toUpperCase()}
                       </Text>
                     </View>
                   </View>
@@ -257,16 +241,16 @@ export default function AdminStudentsScreen() {
 
                 <View style={styles.studentDetails}>
                   <Text style={styles.detailText}>
-                    Registered: {formatDate(student.created_at)}
+                    Registered: {formatDate(student.createdAt)}
                   </Text>
-                  {student.approved_at && (
+                  {student.approvedAt && (
                     <Text style={styles.detailText}>
-                      {student.approval_status === 'approved' ? 'Approved' : 'Rejected'}: {formatDate(student.approved_at)}
+                      {student.approvalStatus === 'approved' ? 'Approved' : 'Rejected'}: {formatDate(student.approvedAt)}
                     </Text>
                   )}
                 </View>
 
-                {student.approval_status === 'pending' && (
+                {student.approvalStatus === 'pending' && (
                   <View style={styles.actionButtons}>
                     <Button
                       title="Approve"

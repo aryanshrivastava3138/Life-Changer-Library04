@@ -1,11 +1,10 @@
 import { useState, useEffect } from 'react';
 import { View, Text, StyleSheet, ScrollView, Alert } from 'react-native';
 import { useAuth } from '@/contexts/AuthContext';
-import { supabase } from '@/lib/supabase';
+import { AttendanceService } from '@/lib/firebase';
 import { Card } from '@/components/ui/Card';
 import { Button } from '@/components/ui/Button';
 import { LoadingSpinner } from '@/components/ui/LoadingSpinner';
-import { Attendance, Admission } from '@/types/database';
 import { formatTime } from '@/utils/dateUtils';
 import { 
   isCurrentTimeInShift, 
@@ -31,8 +30,8 @@ interface AttendanceStatus {
 
 export default function AttendanceScreen() {
   const { user } = useAuth();
-  const [todayAttendance, setTodayAttendance] = useState<Attendance[]>([]);
-  const [recentAttendance, setRecentAttendance] = useState<Attendance[]>([]);
+  const [todayAttendance, setTodayAttendance] = useState<any[]>([]);
+  const [recentAttendance, setRecentAttendance] = useState<any[]>([]);
   const [attendanceStatus, setAttendanceStatus] = useState<AttendanceStatus[]>([]);
   const [loading, setLoading] = useState(true);
   const [checkingIn, setCheckingIn] = useState(false);
@@ -68,12 +67,7 @@ export default function AttendanceScreen() {
 
     try {
       // Fetch today's attendance
-      const { data: todayData } = await supabase
-        .from('attendance')
-        .select('*')
-        .eq('user_id', user.id)
-        .eq('date', today)
-        .order('created_at', { ascending: false });
+      const todayData = await AttendanceService.getUserAttendance(user.id, today);
 
       if (todayData) {
         setTodayAttendance(todayData);
@@ -83,16 +77,14 @@ export default function AttendanceScreen() {
       const sevenDaysAgo = new Date();
       sevenDaysAgo.setDate(sevenDaysAgo.getDate() - 7);
       
-      const { data: recentData } = await supabase
-        .from('attendance')
-        .select('*')
-        .eq('user_id', user.id)
-        .gte('date', sevenDaysAgo.toISOString().split('T')[0])
-        .order('date', { ascending: false })
-        .order('created_at', { ascending: false });
+      const recentData = await AttendanceService.getUserAttendance(user.id);
+      const filteredRecentData = recentData.filter(record => {
+        const recordDate = new Date(record.date);
+        return recordDate >= sevenDaysAgo;
+      });
 
-      if (recentData) {
-        setRecentAttendance(recentData);
+      if (filteredRecentData) {
+        setRecentAttendance(filteredRecentData);
       }
     } catch (error) {
       console.error('Error fetching attendance data:', error);
@@ -104,21 +96,21 @@ export default function AttendanceScreen() {
   const updateAttendanceStatus = () => {
     const statusArray: AttendanceStatus[] = availableShifts.map(shift => {
       const shiftAttendance = todayAttendance.find(record => record.shift === shift);
-      const hasCheckedIn = shiftAttendance && shiftAttendance.check_in_time;
-      const isCompleted = shiftAttendance && shiftAttendance.check_in_time && shiftAttendance.check_out_time;
+      const hasCheckedIn = shiftAttendance && shiftAttendance.checkInTime;
+      const isCompleted = shiftAttendance && shiftAttendance.checkInTime && shiftAttendance.checkOutTime;
       
       if (isCompleted) {
         return {
           shift,
           status: 'present',
-          checkInTime: shiftAttendance.check_in_time!,
-          checkOutTime: shiftAttendance.check_out_time!
+          checkInTime: shiftAttendance.checkInTime!,
+          checkOutTime: shiftAttendance.checkOutTime!
         };
       } else if (hasCheckedIn) {
         return {
           shift,
           status: 'present',
-          checkInTime: shiftAttendance.check_in_time!
+          checkInTime: shiftAttendance.checkInTime!
         };
       } else if (shouldMarkAbsent(shift, !!hasCheckedIn)) {
         return {
@@ -152,7 +144,7 @@ export default function AttendanceScreen() {
 
     // Check if already checked in for this shift today
     const existingCheckIn = todayAttendance.find(
-      record => record.shift === shift && record.check_in_time && !record.check_out_time
+      record => record.shift === shift && record.checkInTime && !record.checkOutTime
     );
 
     if (existingCheckIn) {
@@ -162,7 +154,7 @@ export default function AttendanceScreen() {
 
     // Check if already completed this shift today
     const completedShift = todayAttendance.find(
-      record => record.shift === shift && record.check_in_time && record.check_out_time
+      record => record.shift === shift && record.checkInTime && record.checkOutTime
     );
 
     if (completedShift) {
@@ -173,16 +165,12 @@ export default function AttendanceScreen() {
     setCheckingIn(true);
 
     try {
-      const { error } = await supabase
-        .from('attendance')
-        .insert({
-          user_id: user.id,
+      await AttendanceService.createAttendance({
+          userId: user.id,
           shift,
-          check_in_time: new Date().toISOString(),
+          checkInTime: new Date().toISOString(),
           date: today,
         });
-
-      if (error) throw error;
 
       await fetchData();
       Alert.alert('Success', `Checked in successfully for ${shift} shift!`);
@@ -210,14 +198,9 @@ export default function AttendanceScreen() {
     setCheckingOut(true);
 
     try {
-      const { error } = await supabase
-        .from('attendance')
-        .update({
-          check_out_time: new Date().toISOString(),
-        })
-        .eq('id', attendanceId);
-
-      if (error) throw error;
+      await AttendanceService.updateAttendance(attendanceId, {
+          checkOutTime: new Date().toISOString(),
+        });
 
       await fetchData();
       Alert.alert('Success', `Checked out successfully from ${shift} shift!`);
@@ -229,34 +212,34 @@ export default function AttendanceScreen() {
     }
   };
 
-  const getAttendanceStatusIcon = (record: Attendance) => {
+  const getAttendanceStatusIcon = (record: any) => {
     if (record.status === 'absent') {
       return <XIcon size={16} color="#EF4444" />;
-    } else if (record.check_in_time && record.check_out_time) {
+    } else if (record.checkInTime && record.checkOutTime) {
       return <CheckIn size={16} color="#10B981" />;
-    } else if (record.check_in_time) {
+    } else if (record.checkInTime) {
       return <Clock size={16} color="#F59E0B" />;
     }
     return <Calendar size={16} color="#64748B" />;
   };
 
-  const getAttendanceStatusText = (record: Attendance) => {
+  const getAttendanceStatusText = (record: any) => {
     if (record.status === 'absent') {
       return 'ABSENT';
-    } else if (record.check_in_time && record.check_out_time) {
+    } else if (record.checkInTime && record.checkOutTime) {
       return 'COMPLETED';
-    } else if (record.check_in_time) {
+    } else if (record.checkInTime) {
       return 'CHECKED IN';
     }
     return 'PENDING';
   };
 
-  const getAttendanceStatusColor = (record: Attendance) => {
+  const getAttendanceStatusColor = (record: any) => {
     if (record.status === 'absent') {
       return '#EF4444';
-    } else if (record.check_in_time && record.check_out_time) {
+    } else if (record.checkInTime && record.checkOutTime) {
       return '#10B981';
-    } else if (record.check_in_time) {
+    } else if (record.checkInTime) {
       return '#F59E0B';
     }
     return '#64748B';
@@ -317,7 +300,7 @@ export default function AttendanceScreen() {
         <View style={styles.shiftsContainer}>
           {attendanceStatus.map((status) => {
             const shiftAttendance = todayAttendance.find(record => record.shift === status.shift);
-            const isCheckedIn = shiftAttendance && shiftAttendance.check_in_time && !shiftAttendance.check_out_time;
+            const isCheckedIn = shiftAttendance && shiftAttendance.checkInTime && !shiftAttendance.checkOutTime;
             const isCompleted = status.status === 'present' && status.checkOutTime;
             const isAbsent = status.status === 'absent';
             const isShiftActive = isCurrentTimeInShift(status.shift);
@@ -490,14 +473,14 @@ export default function AttendanceScreen() {
                   </View>
                 ) : (
                   <View style={styles.historyTimes}>
-                    {record.check_in_time && (
+                    {record.checkInTime && (
                       <Text style={styles.historyTime}>
-                        In: {formatTime(record.check_in_time)}
+                        In: {formatTime(record.checkInTime)}
                       </Text>
                     )}
-                    {record.check_out_time && (
+                    {record.checkOutTime && (
                       <Text style={styles.historyTime}>
-                        Out: {formatTime(record.check_out_time)}
+                        Out: {formatTime(record.checkOutTime)}
                       </Text>
                     )}
                   </View>

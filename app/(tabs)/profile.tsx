@@ -2,18 +2,17 @@ import { useState, useEffect } from 'react';
 import { View, Text, StyleSheet, ScrollView } from 'react-native';
 import { router } from 'expo-router';
 import { useAuth } from '@/contexts/AuthContext';
-import { supabase } from '@/lib/supabase';
+import { AdmissionService, PaymentService } from '@/lib/firebase';
 import { Card } from '@/components/ui/Card';
 import { Button } from '@/components/ui/Button';
 import { LoadingSpinner } from '@/components/ui/LoadingSpinner';
-import { Admission, PaymentHistory } from '@/types/database';
 import { formatDate } from '@/utils/dateUtils';
 import { User, CreditCard, Settings, CircleHelp as HelpCircle, LogOut, Shield } from 'lucide-react-native';
 
 export default function ProfileScreen() {
   const { user, signOut } = useAuth();
-  const [admission, setAdmission] = useState<Admission | null>(null);
-  const [paymentHistory, setPaymentHistory] = useState<PaymentHistory[]>([]);
+  const [admission, setAdmission] = useState<any | null>(null);
+  const [paymentHistory, setPaymentHistory] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
@@ -25,23 +24,14 @@ export default function ProfileScreen() {
 
     try {
       // Fetch admission data - get the most recent admission
-      const { data: admissionData } = await supabase
-        .from('admissions')
-        .select('*')
-        .eq('user_id', user.id)
-        .order('created_at', { ascending: false })
-        .limit(1);
+      const admissionData = await AdmissionService.getUserAdmissions(user.id);
 
       if (admissionData && admissionData.length > 0) {
         setAdmission(admissionData[0]);
       }
 
       // Fetch payment history
-      const { data: paymentData } = await supabase
-        .from('payment_history')
-        .select('*')
-        .eq('user_id', user.id)
-        .order('created_at', { ascending: false });
+      const paymentData = await PaymentService.getUserPayments(user.id);
 
       if (paymentData) {
         setPaymentHistory(paymentData);
@@ -96,7 +86,7 @@ export default function ProfileScreen() {
         <View style={styles.infoRow}>
           <Text style={styles.infoLabel}>Member Since</Text>
           <Text style={styles.infoValue}>
-            {formatDate(user?.created_at || '')}
+            {formatDate(user?.createdAt || '')}
           </Text>
         </View>
       </Card>
@@ -107,7 +97,7 @@ export default function ProfileScreen() {
           <Text style={styles.sectionTitle}>Admission Details</Text>
           <View style={styles.infoRow}>
             <Text style={styles.infoLabel}>Course</Text>
-            <Text style={styles.infoValue}>{admission.course_name}</Text>
+            <Text style={styles.infoValue}>{admission.courseName}</Text>
           </View>
           <View style={styles.infoRow}>
             <Text style={styles.infoLabel}>Duration</Text>
@@ -116,31 +106,31 @@ export default function ProfileScreen() {
           <View style={styles.infoRow}>
             <Text style={styles.infoLabel}>Shifts</Text>
             <Text style={styles.infoValue}>
-              {admission.selected_shifts.join(', ')}
+              {admission.selectedShifts.join(', ')}
             </Text>
           </View>
           <View style={styles.infoRow}>
             <Text style={styles.infoLabel}>Status</Text>
             <Text style={[
               styles.infoValue,
-              { color: admission.payment_status === 'paid' ? '#10B981' : '#F59E0B' }
+              { color: admission.paymentStatus === 'paid' ? '#10B981' : '#F59E0B' }
             ]}>
-              {admission.payment_status === 'paid' ? 'Active' : 'Pending Payment'}
+              {admission.paymentStatus === 'paid' ? 'Active' : 'Pending Payment'}
             </Text>
           </View>
-          {admission.start_date && (
+          {admission.startDate && (
             <View style={styles.infoRow}>
               <Text style={styles.infoLabel}>Start Date</Text>
               <Text style={styles.infoValue}>
-                {formatDate(admission.start_date)}
+                {formatDate(admission.startDate)}
               </Text>
             </View>
           )}
-          {admission.end_date && (
+          {admission.endDate && (
             <View style={styles.infoRow}>
               <Text style={styles.infoLabel}>End Date</Text>
               <Text style={styles.infoValue}>
-                {formatDate(admission.end_date)}
+                {formatDate(admission.endDate)}
               </Text>
             </View>
           )}
@@ -156,18 +146,18 @@ export default function ProfileScreen() {
               <View style={styles.paymentHeader}>
                 <Text style={styles.paymentAmount}>₹{payment.amount}</Text>
                 <Text style={styles.paymentDate}>
-                  {formatDate(payment.payment_date)}
+                  {formatDate(payment.paymentDate)}
                 </Text>
               </View>
               <View style={styles.paymentDetails}>
                 <Text style={styles.paymentDetail}>
-                  Duration: {payment.duration_months} months
+                  Duration: {payment.durationMonths} months
                 </Text>
                 <Text style={styles.paymentDetail}>
-                  Mode: {payment.payment_mode.toUpperCase()}
+                  Mode: {payment.paymentMode.toUpperCase()}
                 </Text>
                 <Text style={styles.paymentDetail}>
-                  Receipt: {payment.receipt_number}
+                  Receipt: {payment.receiptNumber}
                 </Text>
               </View>
             </View>
