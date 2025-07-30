@@ -1,4 +1,4 @@
-import { AdmissionService, AttendanceService } from '@/lib/firebase';
+import { AdmissionService, AttendanceService } from '../../../lib/firebase';
 
 export async function POST(request: Request) {
   try {
