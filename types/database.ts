@@ -69,7 +69,10 @@ export interface Payment {
   durationMonths: number;
   paymentDate: any;
   receiptNumber: string;
-  approvalStatus?: 'pending' | 'approved' | 'rejected';
+  bookingId?: string;
+  admissionId?: string;
+  approvedBy?: string;
+  approvedAt?: any;
   createdAt: any;
   updatedAt: any;
 }

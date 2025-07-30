@@ -2,15 +2,15 @@ import { useState, useEffect } from 'react';
 import { View, Text, StyleSheet, ScrollView, RefreshControl, Alert, TouchableOpacity } from 'react-native';
 import { router } from 'expo-router';
 import { useAuth } from '@/contexts/AuthContext';
-import { supabase } from '@/lib/supabase';
+import { PaymentService, UserService, SeatBookingService, AdmissionService, NotificationService, AdminLogService } from '@/lib/firebase';
 import { Card } from '@/components/ui/Card';
 import { Button } from '@/components/ui/Button';
 import { LoadingSpinner } from '@/components/ui/LoadingSpinner';
-import { CashPayment, User, SeatBooking, Admission } from '@/types/database';
+import { Payment, User, SeatBooking, Admission } from '@/types/database';
 import { formatDate } from '@/utils/dateUtils';
 import { ArrowLeft, CircleCheck as CheckCircle, Circle as XCircle, Clock, Banknote, MapPin, Calendar, GraduationCap } from 'lucide-react-native';
 
-interface CashPaymentWithDetails extends CashPayment {
+interface CashPaymentWithDetails extends Payment {
   user: User;
   booking?: SeatBooking;
   admission?: Admission;
@@ -35,19 +35,34 @@ export default function AdminPaymentsScreen() {
 
   const fetchCashPayments = async () => {
     try {
-      const { data, error } = await supabase
-        .from('cash_payments')
-        .select(`
-          *,
-          user:users!cash_payments_user_id_fkey(*),
-          booking:seat_bookings!cash_payments_booking_id_fkey(*),
-          admission:admissions!cash_payments_admission_id_fkey(*)
-        `)
-        .order('created_at', { ascending: false });
+      const payments = await PaymentService.getAllPayments();
+      
+      const paymentsWithDetails = await Promise.all(
+        payments.map(async (payment) => {
+          const userDetails = await UserService.getUserById(payment.userId);
+          let booking = null;
+          let admission = null;
 
-      if (error) throw error;
+          if (payment.bookingId) {
+            booking = await SeatBookingService.getBookingById(payment.bookingId);
+          }
 
-      setCashPayments(data || []);
+          if (payment.admissionId) {
+            admission = await AdmissionService.getAdmissionById(payment.admissionId);
+          }
+
+          return {
+            ...payment,
+            user: userDetails,
+            booking,
+            admission
+          } as CashPaymentWithDetails;
+        })
+      );
+
+      setCashPayments(paymentsWithDetails.sort((a, b) => 
+        new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()
+      ));
     } catch (error) {
       console.error('Error fetching cash payments:', error);
     } finally {
@@ -66,125 +81,90 @@ export default function AdminPaymentsScreen() {
     setProcessing(paymentId);
 
     try {
-      // Update cash payment status
-      const { error } = await supabase
-        .from('cash_payments')
-        .update({
-          status: action === 'approve' ? 'approved' : 'rejected',
-          approved_by: user?.id,
-          approved_at: new Date().toISOString()
-        })
-        .eq('id', paymentId);
-
-      if (error) throw error;
+      // Update payment status
+      await PaymentService.updatePayment(paymentId, {
+        status: action === 'approve' ? 'approved' : 'rejected',
+        approvedBy: user?.id,
+        approvedAt: new Date()
+      });
 
       if (action === 'approve') {
         // If it's a booking payment, update the booking status to 'booked'
-        if (payment.booking_id) {
-          const { error: bookingError } = await supabase
-            .from('seat_bookings')
-            .update({ booking_status: 'booked' })
-            .eq('id', payment.booking_id);
-
-          if (bookingError) throw bookingError;
+        if (payment.bookingId) {
+          await SeatBookingService.updateBooking(payment.bookingId, {
+            bookingStatus: 'booked'
+          });
         }
 
         // If it's an admission payment, update the admission status and dates
-        if (payment.admission_id) {
-          const startDate = new Date().toISOString();
-          const { data: admission, error: admissionFetchError } = await supabase
-            .from('admissions')
-            .select('duration')
-            .eq('id', payment.admission_id)
-            .single();
+        if (payment.admissionId) {
+          const startDate = new Date();
+          const admission = await AdmissionService.getAdmissionById(payment.admissionId);
+          
+          if (admission) {
+            const endDate = new Date();
+            endDate.setMonth(endDate.getMonth() + admission.duration);
 
-          if (admissionFetchError) throw admissionFetchError;
-
-          const endDate = new Date();
-          endDate.setMonth(endDate.getMonth() + admission.duration);
-
-          const { error: admissionError } = await supabase
-            .from('admissions')
-            .update({
-              payment_status: 'paid',
-              payment_date: startDate,
-              start_date: startDate,
-              end_date: endDate.toISOString()
-            })
-            .eq('id', payment.admission_id);
-
-          if (admissionError) throw admissionError;
-
-          // Create payment history record
-          await supabase
-            .from('payment_history')
-            .insert({
-              user_id: payment.user_id,
-              amount: payment.amount,
-              payment_mode: 'cash',
-              duration_months: admission.duration,
-              payment_date: startDate,
-              receipt_number: `LCL-CASH-${Date.now()}`,
+            await AdmissionService.updateAdmission(payment.admissionId, {
+              paymentStatus: 'paid',
+              paymentDate: startDate,
+              startDate: startDate,
+              endDate: endDate
             });
+          }
         }
       } else if (action === 'reject') {
         // If rejected, remove the booking (if it exists)
-        if (payment.booking_id) {
-          const { error: bookingError } = await supabase
-            .from('seat_bookings')
-            .delete()
-            .eq('id', payment.booking_id);
-
-          if (bookingError) throw bookingError;
+        if (payment.bookingId) {
+          await SeatBookingService.deleteBooking(payment.bookingId);
         }
 
         // If rejected admission payment, keep admission as pending
-        if (payment.admission_id) {
-          const { error: admissionError } = await supabase
-            .from('admissions')
-            .update({ payment_status: 'pending' })
-            .eq('id', payment.admission_id);
-
-          if (admissionError) throw admissionError;
+        if (payment.admissionId) {
+          await AdmissionService.updateAdmission(payment.admissionId, {
+            paymentStatus: 'pending'
+          });
         }
 
         // Send notification to student about rejection
-        await supabase
-          .from('notifications')
-          .insert({
-            user_id: payment.user_id,
-            title: 'Payment Rejected',
-            message: `Your cash payment of ₹${payment.amount} has been rejected. Please contact the library for more information.`,
-            type: 'error',
-            created_by: user?.id
-          });
+        await NotificationService.createNotification({
+          userId: payment.userId,
+          title: 'Payment Rejected',
+          body: `Your cash payment of ₹${payment.amount} has been rejected. Please contact the library for more information.`,
+          type: 'error',
+          isRead: false,
+          createdBy: user?.id,
+          createdAt: new Date(),
+          updatedAt: new Date()
+        });
       }
 
       // Log admin action
-      await supabase
-        .from('admin_logs')
-        .insert({
-          admin_id: user?.id,
-          action: `${action}_cash_payment`,
-          details: { 
-            payment_id: paymentId, 
-            amount: payment.amount,
-            user_name: payment.user?.full_name,
-            payment_type: payment.booking_id ? 'booking' : 'admission'
-          }
-        });
+      await AdminLogService.createLog({
+        adminId: user?.id || '',
+        action: `${action}_cash_payment`,
+        details: { 
+          paymentId: paymentId, 
+          amount: payment.amount,
+          userName: payment.user?.fullName,
+          paymentType: payment.bookingId ? 'booking' : 'admission'
+        },
+        createdAt: new Date(),
+        updatedAt: new Date()
+      });
 
       // Send success notification to student if approved
       if (action === 'approve') {
-        await supabase
-          .from('notifications')
-          .insert({
-            user_id: payment.user_id,
-            title: 'Payment Approved',
-            message: `Your cash payment of ₹${payment.amount} has been approved. ${payment.booking_id ? 'Your seat booking is now confirmed.' : 'Your admission is now active.'}`,
-            type: 'success',
-            created_by: user?.id
-          });
+        await NotificationService.createNotification({
+          userId: payment.userId,
+          title: 'Payment Approved',
+          body: `Your cash payment of ₹${payment.amount} has been approved. ${payment.bookingId ? 'Your seat booking is now confirmed.' : 'Your admission is now active.'}`,
+          type: 'success',
+          isRead: false,
+          createdBy: user?.id,
+          createdAt: new Date(),
+          updatedAt: new Date()
+        });
       }
 
       Alert.alert(
@@ -202,25 +182,20 @@ export default function AdminPaymentsScreen() {
   };
 
   const confirmAction = (payment: CashPaymentWithDetails, action: 'approve' | 'reject') => {
-    console.log('confirmAction called with:', { paymentId: payment.id, action });
-    
-    const paymentType = payment.booking_id ? 'seat booking' : 'admission';
-    const details = payment.booking_id 
-      ? `Seat ${payment.booking?.seat_number} for ${payment.booking?.shift} shift`
-      : `Admission for ${payment.admission?.course_name}`;
+    const paymentType = payment.bookingId ? 'seat booking' : 'admission';
+    const details = payment.bookingId 
+      ? `Seat ${payment.booking?.seatNumber} for ${payment.booking?.shift} shift`
+      : `Admission for ${payment.admission?.courseName}`;
 
     Alert.alert(
       `${action === 'approve' ? 'Approve' : 'Reject'} Payment`,
-      `Are you sure you want to ${action} the ${paymentType} payment of ₹${payment.amount} from ${payment.user?.full_name || 'Unknown User'}?\n\nDetails: ${details}`,
+      `Are you sure you want to ${action} the ${paymentType} payment of ₹${payment.amount} from ${payment.user?.fullName || 'Unknown User'}?\n\nDetails: ${details}`,
       [
         { text: 'Cancel', style: 'cancel' },
         {
           text: action === 'approve' ? 'Approve' : 'Reject',
           style: action === 'approve' ? 'default' : 'destructive',
-          onPress: () => {
-            console.log('Alert confirmed, calling handlePaymentAction');
-            handlePaymentAction(payment, action);
-          }
+          onPress: () => handlePaymentAction(payment, action)
         }
       ]
     );
@@ -268,9 +243,9 @@ export default function AdminPaymentsScreen() {
               <View key={payment.id} style={styles.paymentItem}>
                 <View style={styles.paymentHeader}>
                   <View style={styles.userInfo}>
-                    <Text style={styles.userName}>{payment.user?.full_name || 'N/A'}</Text>
+                    <Text style={styles.userName}>{payment.user?.fullName || 'N/A'}</Text>
                     <Text style={styles.userEmail}>{payment.user?.email || 'N/A'}</Text>
-                    <Text style={styles.userMobile}>{payment.user?.mobile_number || 'N/A'}</Text>
+                    <Text style={styles.userMobile}>{payment.user?.mobileNumber || 'N/A'}</Text>
                   </View>
                   <View style={styles.amountContainer}>
                     <Text style={styles.amount}>₹{payment.amount}</Text>
@@ -282,29 +257,29 @@ export default function AdminPaymentsScreen() {
                 </View>
 
                 <View style={styles.paymentDetails}>
-                  {payment.booking_id && payment.booking && (
+                  {payment.bookingId && payment.booking && (
                     <View style={styles.bookingDetails}>
                       <View style={styles.detailRow}>
                         <MapPin size={14} color="#64748B" />
                         <Text style={styles.detailText}>
-                          Seat {payment.booking.seat_number} - {payment.booking.shift.toUpperCase()} shift
+                          Seat {payment.booking.seatNumber} - {payment.booking.shift.toUpperCase()} shift
                         </Text>
                       </View>
                       <View style={styles.detailRow}>
                         <Calendar size={14} color="#64748B" />
                         <Text style={styles.detailText}>
-                          Date: {new Date(payment.booking.booking_date).toLocaleDateString('en-IN')}
+                          Date: {new Date(payment.booking.bookingDate).toLocaleDateString('en-IN')}
                         </Text>
                       </View>
                     </View>
                   )}
                   
-                  {payment.admission_id && payment.admission && (
+                  {payment.admissionId && payment.admission && (
                     <View style={styles.admissionDetails}>
                       <View style={styles.detailRow}>
                         <GraduationCap size={14} color="#64748B" />
                         <Text style={styles.detailText}>
-                          Course: {payment.admission.course_name}
+                          Course: {payment.admission.courseName}
                         </Text>
                       </View>
                       <View style={styles.detailRow}>
@@ -316,17 +291,17 @@ export default function AdminPaymentsScreen() {
                       <View style={styles.detailRow}>
                         <Calendar size={14} color="#64748B" />
                         <Text style={styles.detailText}>
-                          Shifts: {payment.admission.selected_shifts.join(', ')}
+                          Shifts: {payment.admission.selectedShifts.join(', ')}
                         </Text>
                       </View>
                     </View>
                   )}
                   
                   <Text style={styles.detailText}>
-                    Submitted: {formatDate(payment.created_at)}
+                    Submitted: {formatDate(payment.createdAt)}
                   </Text>
                   <Text style={styles.detailText}>
-                    Type: {payment.admission_id ? 'Admission Payment' : 'Seat Booking Payment'}
+                    Type: {payment.admissionId ? 'Admission Payment' : 'Seat Booking Payment'}
                   </Text>
                 </View>
 
@@ -334,7 +309,6 @@ export default function AdminPaymentsScreen() {
                   <TouchableOpacity
                     style={[styles.approveButton, processing === payment.id && styles.disabledButton]}
                     onPress={() => {
-                      console.log('Approve button pressed for payment:', payment.id);
                       if (processing !== payment.id) {
                         confirmAction(payment, 'approve');
                       }
@@ -351,7 +325,6 @@ export default function AdminPaymentsScreen() {
                   <TouchableOpacity
                     style={[styles.rejectButton, processing === payment.id && styles.disabledButton]}
                     onPress={() => {
-                      console.log('Reject button pressed for payment:', payment.id);
                       if (processing !== payment.id) {
                         confirmAction(payment, 'reject');
                       }
@@ -380,7 +353,7 @@ export default function AdminPaymentsScreen() {
               <View key={payment.id} style={styles.historyItem}>
                 <View style={styles.paymentHeader}>
                   <View style={styles.userInfo}>
-                    <Text style={styles.userName}>{payment.user?.full_name || 'N/A'}</Text>
+                    <Text style={styles.userName}>{payment.user?.fullName || 'N/A'}</Text>
                     <Text style={styles.userEmail}>{payment.user?.email || 'N/A'}</Text>
                   </View>
                   <View style={styles.amountContainer}>
@@ -403,10 +376,10 @@ export default function AdminPaymentsScreen() {
 
                 <View style={styles.paymentDetails}>
                   <Text style={styles.detailText}>
-                    Processed: {formatDate(payment.approved_at || payment.created_at)}
+                    Processed: {formatDate(payment.approvedAt || payment.createdAt)}
                   </Text>
                   <Text style={styles.detailText}>
-                    Type: {payment.admission_id ? 'Admission Payment' : 'Seat Booking Payment'}
+                    Type: {payment.admissionId ? 'Admission Payment' : 'Seat Booking Payment'}
                   </Text>
                 </View>
               </View>
@@ -574,7 +547,7 @@ const styles = StyleSheet.create({
   actionButtons: {
     flexDirection: 'row',
     gap: 12,
-    minHeight: 48, // Ensure minimum touch target size
+    minHeight: 48,
     alignItems: 'center',
   },
   approveButton: {
