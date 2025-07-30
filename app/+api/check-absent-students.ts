@@ -1,4 +1,4 @@
-import { supabase } from '@/lib/supabase';
+import { AdmissionService, AttendanceService } from '@/lib/firebase';
 
 export async function POST(request: Request) {
   try {
@@ -6,32 +6,18 @@ export async function POST(request: Request) {
     const checkDate = date || new Date().toISOString().split('T')[0];
     
     // Get all students with active admissions
-    const { data: admissions, error: admissionsError } = await supabase
-      .from('admissions')
-      .select('user_id, selected_shifts')
-      .eq('payment_status', 'paid');
-
-    if (admissionsError) {
-      throw admissionsError;
-    }
+    const admissions = await AdmissionService.getWhere('admissions', 'paymentStatus', '==', 'paid');
 
     // Get all attendance records for the date
-    const { data: attendanceRecords, error: attendanceError } = await supabase
-      .from('attendance')
-      .select('user_id, shift, check_in_time')
-      .eq('date', checkDate);
-
-    if (attendanceError) {
-      throw attendanceError;
-    }
+    const attendanceRecords = await AttendanceService.getWhere('attendance', 'date', '==', checkDate);
 
     const absentStudents = [];
     const currentTime = new Date();
     const currentHour = currentTime.getHours();
 
     // Check each student's shifts
-    for (const admission of admissions || []) {
-      for (const shift of admission.selected_shifts) {
+    for (const admission of admissions) {
+      for (const shift of admission.selectedShifts) {
         // Check if shift has ended
         let shiftEnded = false;
         
@@ -55,14 +41,14 @@ export async function POST(request: Request) {
           // Check if student checked in for this shift
           const hasCheckedIn = attendanceRecords?.some(
             record => 
-              record.user_id === admission.user_id && 
+              record.userId === admission.userId && 
               record.shift === shift && 
-              record.check_in_time
+              record.checkInTime
           );
 
           if (!hasCheckedIn) {
             absentStudents.push({
-              user_id: admission.user_id,
+              userId: admission.userId,
               shift,
               date: checkDate,
               status: 'absent',
